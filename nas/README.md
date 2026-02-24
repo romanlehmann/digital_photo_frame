@@ -1,6 +1,6 @@
 # NAS Setup Guide (Synology DSM 7)
 
-This script runs on your Synology NAS. It selects 200 random photos from your library each week, generates horizontal and vertical versions with blur-filled backgrounds, and writes them to a shared folder that your Pi frames sync from.
+This script runs on your Synology NAS. It connects to Synology Photos via a share link, selects 200 random photos each week, downloads the originals, generates horizontal and vertical versions with blur-filled backgrounds, and writes them to a shared folder that your Pi frames sync from.
 
 ## 1. Enable SSH on the NAS
 
@@ -34,18 +34,18 @@ From your computer (not the NAS):
 
 ```bash
 # Create directory on NAS
-ssh your_admin_user@nas.local "mkdir -p /volume1/docker/frame/scripts"
+ssh your_admin_user@nas.local "mkdir -p /volume2/docker/frame/scripts"
 
 # Copy files
 scp nas/prepare_photos.py nas/config.yaml nas/requirements.txt \
-    your_admin_user@nas.local:/volume1/docker/frame/scripts/
+    your_admin_user@nas.local:/volume2/docker/frame/scripts/
 ```
 
 Or clone the repo directly on the NAS:
 
 ```bash
 ssh your_admin_user@nas.local
-cd /volume1/docker/frame
+cd /volume2/docker/frame
 git clone https://github.com/rwkaspar/digital_photo_frame.git
 ```
 
@@ -53,7 +53,7 @@ git clone https://github.com/rwkaspar/digital_photo_frame.git
 
 ```bash
 ssh your_admin_user@nas.local
-cd /volume1/docker/frame/scripts
+cd /volume2/docker/frame/scripts
 
 # Create venv
 python3 -m venv venv
@@ -63,36 +63,45 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Verify
-python -c "from PIL import Image; import yaml; print('OK')"
+python -c "from PIL import Image; import yaml, requests; print('OK')"
 deactivate
 ```
 
-## 5. Configure
+## 5. Create a share link in Synology Photos
+
+1. Open **Synology Photos** in your browser
+2. Go to the album you want to display on the frames
+3. Click **Share** (or the share icon)
+4. Enable **Share link**
+5. Set a **passphrase**
+6. Copy the share URL (e.g. `https://photos.example.com/mo/sharing/AbCdEfG`)
+
+## 6. Configure
 
 Edit the config file on the NAS:
 
 ```bash
-nano /volume1/docker/frame/scripts/config.yaml
+nano /volume2/docker/frame/scripts/config.yaml
 ```
 
 Key settings to adjust:
 
 ```yaml
-source:
-  # Point to your Synology Photos directory:
-  #   Shared space:   /volume1/photo
-  #   Personal space: /volume1/homes/YOUR_USERNAME/Photos
-  photos_dir: "/volume1/photo"
-  recursive: true
+synology:
+  # Use localhost since the script runs on the NAS itself
+  base_url: "http://localhost:5000"
+  # Paste your share URL here
+  share_url: "https://photos.example.com/mo/sharing/AbCdEfG"
+  # The passphrase you set
+  share_passphrase: "your-passphrase"
 
 selection:
   photos_per_week: 200
   max_show_count: 10
-  state_db: "/volume1/docker/frame/state.db"
+  state_db: "/volume2/docker/frame/state.db"
 
 output:
-  # This folder will be synced to your Pi frames
-  dir: "/volume1/frame_photos"
+  dir: "/volume2/frame_photos"
   horizontal:
     width: 1920
     height: 1200
@@ -107,25 +116,25 @@ output:
 Create the output directory:
 
 ```bash
-mkdir -p /volume1/frame_photos
+mkdir -p /volume2/frame_photos
 ```
 
-## 6. Test run
+## 7. Test run
 
 ```bash
-/volume1/docker/frame/scripts/venv/bin/python \
-    /volume1/docker/frame/scripts/prepare_photos.py \
-    /volume1/docker/frame/scripts/config.yaml
+/volume2/docker/frame/scripts/venv/bin/python \
+    /volume2/docker/frame/scripts/prepare_photos.py \
+    /volume2/docker/frame/scripts/config.yaml
 ```
 
-This will take a few minutes (processing 200 photos). When done, verify:
+This will take a while (downloading + processing 200 photos). When done, verify:
 
 ```bash
-ls /volume1/frame_photos/horizontal/ | wc -l   # should show 200
-ls /volume1/frame_photos/vertical/ | wc -l     # should show 200
+ls /volume2/frame_photos/horizontal/ | wc -l   # should show 200
+ls /volume2/frame_photos/vertical/ | wc -l     # should show 200
 ```
 
-## 7. Set up weekly schedule
+## 8. Set up weekly schedule
 
 1. Open **DSM > Control Panel > Task Scheduler**
 2. Click **Create > Scheduled Task > User-defined script**
@@ -139,19 +148,19 @@ ls /volume1/frame_photos/vertical/ | wc -l     # should show 200
 5. **Task Settings** tab:
    - User-defined script:
      ```
-     /volume1/docker/frame/scripts/venv/bin/python /volume1/docker/frame/scripts/prepare_photos.py /volume1/docker/frame/scripts/config.yaml
+     /volume2/docker/frame/scripts/venv/bin/python /volume2/docker/frame/scripts/prepare_photos.py /volume2/docker/frame/scripts/config.yaml
      ```
    - (Optional) Send run details by email: check to receive error notifications
 
 Click **OK** to save.
 
-## 8. Set up rsync access for Pi frames
+## 9. Set up rsync access for Pi frames
 
 Each Pi will use rsync over SSH to pull photos. Create a dedicated user or use an existing one:
 
 ```bash
 # On the NAS, ensure the sync user can read the output folder
-chmod -R 755 /volume1/frame_photos
+chmod -R 755 /volume2/frame_photos
 ```
 
 On **each Pi**, set up passwordless SSH:
@@ -159,7 +168,7 @@ On **each Pi**, set up passwordless SSH:
 ```bash
 ssh-keygen -t ed25519       # accept defaults, no passphrase
 ssh-copy-id pi@nas.local    # enter password once
-ssh pi@nas.local ls /volume1/frame_photos/   # should work without password
+ssh pi@nas.local ls /volume2/frame_photos/   # should work without password
 ```
 
 ## Folder structure on the NAS
@@ -167,11 +176,7 @@ ssh pi@nas.local ls /volume1/frame_photos/   # should work without password
 After setup:
 
 ```
-/volume1/
-├── photo/                        # Synology Photos library (source)
-│   ├── 2024/
-│   ├── 2025/
-│   └── ...
+/volume2/
 ├── docker/frame/
 │   ├── scripts/
 │   │   ├── prepare_photos.py     # The preparation script
@@ -192,32 +197,41 @@ After setup:
 
 ## Troubleshooting
 
-### "No photos found"
+### "Could not extract share token"
 
-Check that `photos_dir` in config.yaml points to the right directory:
-
-```bash
-# List what Synology Photos directories exist
-ls /volume1/photo/
-ls /volume1/homes/*/Photos/
+The share URL format should look like:
 ```
+https://your-nas.com/mo/sharing/AbCdEfG
+```
+Make sure you copied the full URL from Synology Photos.
+
+### "Failed to initialize share"
+
+- Check that `base_url` is correct. Try `http://localhost:5000` or `http://localhost:5001` (HTTPS).
+- Make sure Synology Photos is running (check in Package Center).
+
+### "No photos found in shared album"
+
+- Verify the share link works in a browser
+- Check the passphrase is correct
+- Make sure the album actually contains photos
 
 ### "Permission denied"
 
 Run the script as root or fix permissions:
 
 ```bash
-sudo /volume1/docker/frame/scripts/venv/bin/python \
-     /volume1/docker/frame/scripts/prepare_photos.py \
-     /volume1/docker/frame/scripts/config.yaml
+sudo /volume2/docker/frame/scripts/venv/bin/python \
+     /volume2/docker/frame/scripts/prepare_photos.py \
+     /volume2/docker/frame/scripts/config.yaml
 ```
 
-### "No module named PIL"
+### "No module named PIL" / "No module named requests"
 
 The venv is missing dependencies. Reinstall:
 
 ```bash
-cd /volume1/docker/frame/scripts
+cd /volume2/docker/frame/scripts
 source venv/bin/activate
 pip install -r requirements.txt
 deactivate
@@ -232,7 +246,7 @@ tail -50 /var/log/frame_prepare.log
 ### Check selection state
 
 ```bash
-sqlite3 /volume1/docker/frame/state.db "SELECT COUNT(*) FROM photos;"
-sqlite3 /volume1/docker/frame/state.db "SELECT COUNT(*) FROM photos WHERE times_selected > 0;"
-sqlite3 /volume1/docker/frame/state.db "SELECT * FROM runs ORDER BY id DESC LIMIT 5;"
+sqlite3 /volume2/docker/frame/state.db "SELECT COUNT(*) FROM photos;"
+sqlite3 /volume2/docker/frame/state.db "SELECT COUNT(*) FROM photos WHERE times_selected > 0;"
+sqlite3 /volume2/docker/frame/state.db "SELECT * FROM runs ORDER BY id DESC LIMIT 5;"
 ```

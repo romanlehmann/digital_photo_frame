@@ -1,13 +1,14 @@
 # NAS-side photo preparation configuration
 # Runs on Synology NAS via Task Scheduler
 
-# Where to find source photos
-source:
-  # Synology Photos directory
-  # Personal space: /volume1/homes/<user>/Photos
-  # Shared space:   /volume1/photo
-  photos_dir: "/volume1/photo"
-  recursive: true
+# Synology Photos share link
+synology:
+  # Base URL of your Synology (use localhost since this runs on the NAS)
+  base_url: "http://localhost:5000"
+  # Public share URL for your photo album
+  share_url: ""
+  # Passphrase for the shared album
+  share_passphrase: ""
 
 # Photo selection settings
 selection:
@@ -15,12 +16,14 @@ selection:
   # After this many selections a photo enters cooldown (then resets)
   max_show_count: 10
   # State database (tracks which photos were shown)
-  state_db: "/volume1/docker/frame/state.db"
+  state_db: "/volume2/docker/frame/state.db"
 
 # Output settings
 output:
   # Shared folder that Pi frames sync from
-  dir: "/volume1/frame_photos"
+  dir: "/volume2/frame_photos"
+  # Temp directory for downloaded originals (cleaned up after processing)
+  tmp_dir: "/tmp/frame_downloads"
   # Target resolutions per orientation
   horizontal:
     width: 1920
