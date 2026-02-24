@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync photos from NAS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+ExecStart=/home/pi/digital_photo_frame/sync_from_nas.sh
+StandardOutput=journal
+StandardError=journal

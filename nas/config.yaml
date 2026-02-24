@@ -1,0 +1,41 @@
+# NAS-side photo preparation configuration
+# Runs on Synology NAS via Task Scheduler
+
+# Where to find source photos
+source:
+  # Synology Photos directory
+  # Personal space: /volume1/homes/<user>/Photos
+  # Shared space:   /volume1/photo
+  photos_dir: "/volume1/photo"
+  recursive: true
+
+# Photo selection settings
+selection:
+  photos_per_week: 200
+  # After this many selections a photo enters cooldown (then resets)
+  max_show_count: 10
+  # State database (tracks which photos were shown)
+  state_db: "/volume1/docker/frame/state.db"
+
+# Output settings
+output:
+  # Shared folder that Pi frames sync from
+  dir: "/volume1/frame_photos"
+  # Target resolutions per orientation
+  horizontal:
+    width: 1920
+    height: 1200
+  vertical:
+    width: 1200
+    height: 1920
+  # JPEG quality (1-95, higher = better quality, larger files)
+  quality: 85
+  # Blur-fill settings for mismatched aspect ratios
+  blur_radius: 40
+  # Darken blurred background (0.0 = black, 1.0 = no darkening)
+  blur_darken: 0.6
+
+# Logging
+logging:
+  level: INFO
+  file: "/var/log/frame_prepare.log"
