@@ -189,10 +189,7 @@ digital_photo_frame/
 ├── photo_frame_nas_sync.timer    # Pi: weekly sync timer
 ├── photo_frame_server.service    # Pi: HTTP server service
 ├── photo_frame_viewer.service    # Pi: Chromium kiosk service
-├── requirements.txt           # Pi: Python dependencies
-├── photo_frame.py             # (legacy) pygame-based viewer
-├── config.yaml                # (legacy) pygame config
-└── install.sh                 # (legacy) pygame installer
+└── requirements.txt           # Pi: Python dependencies
 ```
 
 ## Troubleshooting

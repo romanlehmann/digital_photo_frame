@@ -182,15 +182,15 @@ def main():
     import yaml
     
     # Load config
-    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config_synology.yaml'
-    
+    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config_frame.yaml'
+
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        
-        photos_dir = config['sync']['photos_dir']
+
+        photos_dir = config.get('sync', {}).get('local_path', '/srv/frame/photos')
         viewer_dir = str(Path(__file__).parent / 'viewer')
-        port = int(os.environ.get('PORT', 8000))
+        port = int(os.environ.get('PORT', 8080))
         
         # Ensure directories exist
         Path(photos_dir).mkdir(parents=True, exist_ok=True)
