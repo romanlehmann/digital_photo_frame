@@ -24,7 +24,7 @@ selection:
 # Output settings
 output:
   # Shared folder that Pi frames sync from
-  dir: "/volume2/frame_photos"
+  dir: "/volume2/docker/frame/frame_photos"
   # Temp directory for downloaded originals (cleaned up after processing)
   tmp_dir: "/tmp/frame_downloads"
   # Target resolutions per orientation

@@ -108,7 +108,7 @@ selection:
   state_db: "/volume2/docker/frame/state.db"
 
 output:
-  dir: "/volume2/frame_photos"
+  dir: "/volume2/docker/frame/frame_photos"
   horizontal:
     width: 1920
     height: 1200
@@ -123,7 +123,7 @@ output:
 Create the output directory:
 
 ```bash
-mkdir -p /volume2/frame_photos
+mkdir -p /volume2/docker/frame/frame_photos
 ```
 
 ## 7. Test run
@@ -137,8 +137,8 @@ mkdir -p /volume2/frame_photos
 This will take a while (downloading + processing 200 photos). When done, verify:
 
 ```bash
-ls /volume2/frame_photos/horizontal/ | wc -l   # should show 200
-ls /volume2/frame_photos/vertical/ | wc -l     # should show 200
+ls /volume2/docker/frame/frame_photos/horizontal/ | wc -l   # should show 200
+ls /volume2/docker/frame/frame_photos/vertical/ | wc -l     # should show 200
 ```
 
 ## 8. Set up weekly schedule
@@ -167,7 +167,7 @@ Each Pi will use rsync over SSH to pull photos. Create a dedicated user or use a
 
 ```bash
 # On the NAS, ensure the sync user can read the output folder
-chmod -R 755 /volume2/frame_photos
+chmod -R 755 /volume2/docker/frame/frame_photos
 ```
 
 On **each Pi**, set up passwordless SSH:
@@ -175,7 +175,7 @@ On **each Pi**, set up passwordless SSH:
 ```bash
 ssh-keygen -t ed25519       # accept defaults, no passphrase
 ssh-copy-id pi@nas.local    # enter password once
-ssh pi@nas.local ls /volume2/frame_photos/   # should work without password
+ssh pi@nas.local ls /volume2/docker/frame/frame_photos/   # should work without password
 ```
 
 ## Folder structure on the NAS
@@ -184,22 +184,22 @@ After setup:
 
 ```
 /volume2/
-├── docker/frame/
-│   ├── scripts/
-│   │   ├── prepare_photos.py     # The preparation script
-│   │   ├── config.yaml           # Configuration
-│   │   ├── requirements.txt      # Python dependencies
-│   │   └── venv/                 # Python virtual environment
-│   └── state.db                  # SQLite tracking database
-└── frame_photos/                 # Output (synced to Pi frames)
-    ├── horizontal/               # 1920x1200 versions
-    │   ├── 0000_IMG_1234.jpg
-    │   ├── 0001_IMG_5678.jpg
-    │   └── ...
-    └── vertical/                 # 1200x1920 versions
-        ├── 0000_IMG_1234.jpg
-        ├── 0001_IMG_5678.jpg
-        └── ...
+└── docker/frame/
+    ├── scripts/
+    │   ├── prepare_photos.py     # The preparation script
+    │   ├── config.yaml           # Configuration
+    │   ├── requirements.txt      # Python dependencies
+    │   └── venv/                 # Python virtual environment
+    ├── state.db                  # SQLite tracking database
+    └── frame_photos/             # Output (synced to Pi frames)
+        ├── horizontal/           # 1920x1200 versions
+        │   ├── 0000_IMG_1234.jpg
+        │   ├── 0001_IMG_5678.jpg
+        │   └── ...
+        └── vertical/             # 1200x1920 versions
+            ├── 0000_IMG_1234.jpg
+            ├── 0001_IMG_5678.jpg
+            └── ...
 ```
 
 ## Troubleshooting

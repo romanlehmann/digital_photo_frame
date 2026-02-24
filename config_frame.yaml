@@ -12,7 +12,7 @@ sync:
   nas_host: "nas.local"
   nas_user: "pi"
   # Path on the NAS where prepare_photos.py writes output
-  nas_path: "/volume2/frame_photos"
+  nas_path: "/volume2/docker/frame/frame_photos"
   # Local path where photos are stored on the Pi
   local_path: "/srv/frame/photos"
 

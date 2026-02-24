@@ -73,7 +73,7 @@ selection:
   state_db: "/volume2/docker/frame/state.db"
 
 output:
-  dir: "/volume2/frame_photos"
+  dir: "/volume2/docker/frame/frame_photos"
 ```
 
 Test run:
@@ -113,7 +113,7 @@ frame:
 sync:
   nas_host: "nas.local"        # NAS hostname or IP
   nas_user: "pi"               # SSH user on the NAS
-  nas_path: "/volume2/frame_photos"
+  nas_path: "/volume2/docker/frame/frame_photos"
   local_path: "/srv/frame/photos"
 ```
 
@@ -194,7 +194,7 @@ digital_photo_frame/
 
 ```bash
 # Test SSH connectivity
-ssh pi@nas.local ls /volume2/frame_photos/horizontal/
+ssh pi@nas.local ls /volume2/docker/frame/frame_photos/horizontal/
 
 # Check sync timer
 sudo systemctl status photo_frame_nas_sync.timer
@@ -225,8 +225,8 @@ sudo systemctl status photo_frame_viewer.service
 tail -f /var/log/frame_prepare.log
 
 # Check output
-ls /volume2/frame_photos/horizontal/ | wc -l
-ls /volume2/frame_photos/vertical/ | wc -l
+ls /volume2/docker/frame/frame_photos/horizontal/ | wc -l
+ls /volume2/docker/frame/frame_photos/vertical/ | wc -l
 ```
 
 ## License
