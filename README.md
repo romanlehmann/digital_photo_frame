@@ -1,309 +1,244 @@
 # Digital Photo Frame
 
-A Python-based digital photo frame application designed for Raspberry Pi Zero 2 W. Display your favorite photos in a beautiful slideshow with smooth transitions and easy configuration.
+A digital photo frame system for Raspberry Pi Zero 2 W with Synology NAS integration. Photos are automatically selected, resized, and prepared on the NAS, then synced to one or more Pi frames.
+
+## How It Works
+
+```
+Synology NAS (weekly cron)
+  prepare_photos.py
+    ├── Scans photo library
+    ├── Selects 200 photos (weighted random, favors unseen)
+    ├── Generates horizontal/ (1920x1200) versions
+    ├── Generates vertical/   (1200x1920) versions
+    └── Blur-fills mismatched aspect ratios
+
+        │ rsync (weekly, 1h later)
+        ▼
+
+Raspberry Pi Zero 2 W
+  viewer_server.py (HTTP :8080)
+    └── Chromium kiosk → slideshow with fade transitions
+```
+
+Portrait photos on a landscape frame (and vice versa) get a **blurred + darkened background fill** instead of black bars. Photos that nearly match the target aspect ratio are simply scaled to cover with a slight crop.
+
+Each Pi frame syncs only the folder matching its orientation, so you can mount frames in either direction.
 
 ## Features
 
-- 📸 **Automatic Slideshow**: Displays images from a specified directory with configurable intervals
-- 🎨 **Smooth Transitions**: Fade effects between images for a professional look
-- 🖼️ **Smart Scaling**: Images are automatically scaled to fit the screen while maintaining aspect ratio
-- 🔀 **Shuffle Mode**: Random display order for variety
-- 📁 **Recursive Scanning**: Supports subdirectories for organized photo collections
-- 🎛️ **Easy Configuration**: YAML-based configuration for all settings
-- 🚀 **Auto-Start**: Systemd service for automatic startup on boot
-- 📝 **Logging**: Comprehensive logging for monitoring and debugging
-- ⌨️ **Keyboard Controls**: Manual control and navigation options
+- **NAS-side processing** - heavy image work runs on the NAS, not the Pi
+- **Multi-frame support** - one NAS prepares photos for any number of frames
+- **Both orientations** - horizontal (1920x1200) and vertical (1200x1920)
+- **Blur-fill backgrounds** - no black bars, ever
+- **Smart selection** - weighted random favoring unseen photos, resets after cooldown
+- **Web-based viewer** - fade transitions, shuffle, touch/swipe, hot corner shutdown
+- **Automatic schedule** - NAS prepares weekly, Pi syncs 1 hour later
 
 ## Requirements
 
 ### Hardware
-- Raspberry Pi Zero 2 W (or any Raspberry Pi)
-- Display (HDMI or DSI)
-- SD card with Raspberry Pi OS
+- Synology NAS (any model running DSM 7)
+- Raspberry Pi Zero 2 W (or any Pi) per frame
+- Display with 1920x1200 resolution (HDMI or DSI)
 
 ### Software
-- Python 3.7+
-- pygame
-- Pillow (PIL)
-- PyYAML
+- Python 3.7+ on both NAS and Pi
+- SSH key access from Pi to NAS (for rsync)
 
-## Installation
+## Setup
 
-### Quick Install
+### 1. NAS Setup
 
-0. Preparation
+Install dependencies on the NAS:
 
-- update system
 ```bash
-sudo apt-get update
-sudo apt-get upgrade -y
-```
-- install git
-```bash
-sudo apt-get install git -y
+pip3 install -r nas/requirements.txt
 ```
 
-2. Clone this repository to your Raspberry Pi:
+Edit `nas/config.yaml`:
+
+```yaml
+source:
+  # Where your photos are stored
+  photos_dir: "/volume1/photo"        # Shared space
+  # photos_dir: "/volume1/homes/<user>/Photos"  # Personal space
+  recursive: true
+
+selection:
+  photos_per_week: 200
+  max_show_count: 10
+  state_db: "/volume1/docker/frame/state.db"
+
+output:
+  dir: "/volume1/frame_photos"
+  horizontal:
+    width: 1920
+    height: 1200
+  vertical:
+    width: 1200
+    height: 1920
+  quality: 85
+  blur_radius: 40
+  blur_darken: 0.6
+```
+
+Test run:
+
 ```bash
+python3 nas/prepare_photos.py nas/config.yaml
+```
+
+Set up a weekly scheduled task in **DSM > Control Panel > Task Scheduler**:
+- Schedule: Monday 03:00
+- Command: `python3 /path/to/nas/prepare_photos.py /path/to/nas/config.yaml`
+
+### 2. Pi Setup
+
+#### Install
+
+```bash
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y git python3 python3-pip chromium-browser
 git clone https://github.com/rwkaspar/digital_photo_frame.git
 cd digital_photo_frame
-```
-
-2. Run the installation script:
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-This will:
-- Install system dependencies
-- Install Python packages
-- Set up the systemd service
-- Create the necessary directories
-
-### Manual Installation
-
-If you prefer to install manually:
-
-1. Install system dependencies:
-```bash
-sudo apt-get update
-sudo apt-get install -y python3 python3-pip python3-pygame
-```
-
-2. Install Python dependencies:
-```bash
 pip3 install -r requirements.txt
 ```
 
-3. Copy the files to your desired location (e.g., `~/digital_photo_frame`)
+#### Configure
 
-## Configuration
-
-Edit the `config.yaml` file to customize your photo frame:
+Edit `config_frame.yaml` for this frame:
 
 ```yaml
-display:
-  fullscreen: true          # Run in fullscreen mode
-  width: 800               # Window width (if fullscreen is false)
-  height: 600              # Window height (if fullscreen is false)
+frame:
+  name: "living-room"          # Friendly name
+  orientation: "horizontal"    # or "vertical"
 
-slideshow:
-  interval: 10             # Seconds between images
-  shuffle: true            # Randomize image order
-  transition: fade         # Transition effect ('fade' or 'none')
-  fade_duration: 1.0       # Fade transition duration in seconds
-
-images:
-  directory: ./images      # Path to your photos
-  recursive: true          # Include subdirectories
-  extensions:              # Supported image formats
-    - .jpg
-    - .jpeg
-    - .png
-    - .bmp
-    - .gif
-
-logging:
-  level: INFO             # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-  file: photo_frame.log   # Log file path
+sync:
+  nas_host: "nas.local"        # NAS hostname or IP
+  nas_user: "pi"               # SSH user on the NAS
+  nas_path: "/volume1/frame_photos"
+  local_path: "/srv/frame/photos"
 ```
 
-## Usage
-
-### Adding Photos
-
-Place your photos in the `images` directory (or the directory specified in `config.yaml`):
+#### SSH key setup (passwordless rsync)
 
 ```bash
-cp ~/Pictures/*.jpg ~/digital_photo_frame/images/
+ssh-keygen -t ed25519  # accept defaults
+ssh-copy-id pi@nas.local
 ```
 
-You can organize photos in subdirectories if `recursive: true` is set in the configuration.
-
-### Running Manually
-
-To start the photo frame:
+#### Test sync
 
 ```bash
-cd ~/digital_photo_frame
-python3 photo_frame.py
+chmod +x sync_from_nas.sh
+./sync_from_nas.sh
 ```
 
-Or specify a custom config file:
+#### Enable services
 
 ```bash
-python3 photo_frame.py /path/to/custom_config.yaml
+# Photo sync timer (weekly Monday 04:00, 1h after NAS prep)
+sudo cp photo_frame_nas_sync.service /etc/systemd/system/
+sudo cp photo_frame_nas_sync.timer /etc/systemd/system/
+sudo systemctl enable --now photo_frame_nas_sync.timer
+
+# Web viewer server
+sudo cp photo_frame_server.service /etc/systemd/system/
+sudo systemctl enable --now photo_frame_server.service
+
+# Chromium kiosk
+sudo cp photo_frame_viewer.service /etc/systemd/system/
+sudo systemctl enable --now photo_frame_viewer.service
 ```
 
-### Keyboard Controls
+### 3. Pi Optimization
 
-While running, you can use these keyboard shortcuts:
-- **ESC** or **Q**: Quit the application
-- **SPACE**: Skip to next image immediately
-- **R**: Reload the image list (useful when adding new photos)
-
-### Auto-Start on Boot
-
-To enable automatic startup:
-
-```bash
-sudo systemctl enable photo_frame.service
-sudo systemctl start photo_frame.service
-```
-
-Check the service status:
-
-```bash
-sudo systemctl status photo_frame.service
-```
-
-View logs:
-
-```bash
-tail -f ~/digital_photo_frame/photo_frame.log
-# or
-journalctl -u photo_frame.service -f
-```
-
-Stop the service:
-
-```bash
-sudo systemctl stop photo_frame.service
-```
-
-Disable auto-start:
-
-```bash
-sudo systemctl disable photo_frame.service
-```
-
-## Raspberry Pi Zero 2 W Optimization
-
-For optimal performance on Raspberry Pi Zero 2 W:
-
-1. **Reduce Image Resolution**: Large images can slow down the slideshow. Consider resizing your photos to 1920x1080 or smaller before adding them.
-
-2. **Disable Desktop Environment**: For a dedicated photo frame, you can boot directly to the application:
 ```bash
 sudo raspi-config
 # System Options > Boot / Auto Login > Console Autologin
-```
-
-3. **Memory Split**: Allocate more memory to GPU:
-```bash
-sudo raspi-config
 # Performance Options > GPU Memory > 128
 ```
 
-4. **Disable Screen Blanking**: Prevent the screen from turning off:
-```bash
-# Edit /boot/config.txt and add:
+Disable screen blanking in `/boot/config.txt`:
+```
 hdmi_blanking=1
+```
+
+## Viewer Controls
+
+- **ESC / Q** - Trigger shutdown dialog
+- **SPACE / Right Arrow** - Skip to next image
+- **Swipe** - Next image (touchscreen)
+- **Hot corner** (top-left) - Shutdown Pi
+
+## Project Structure
+
+```
+digital_photo_frame/
+├── nas/
+│   ├── prepare_photos.py      # NAS: photo selection + blur-fill processing
+│   ├── config.yaml            # NAS: configuration
+│   └── requirements.txt       # NAS: Python dependencies
+├── viewer/
+│   └── index.html             # Web-based slideshow viewer
+├── viewer_server.py           # HTTP server (port 8080)
+├── config_frame.yaml          # Pi: per-frame configuration
+├── sync_from_nas.sh           # Pi: rsync photos from NAS
+├── photo_frame_nas_sync.service  # Pi: systemd sync service
+├── photo_frame_nas_sync.timer    # Pi: weekly sync timer
+├── photo_frame_server.service    # Pi: HTTP server service
+├── photo_frame_viewer.service    # Pi: Chromium kiosk service
+├── requirements.txt           # Pi: Python dependencies
+├── photo_frame.py             # (legacy) pygame-based viewer
+├── config.yaml                # (legacy) pygame config
+└── install.sh                 # (legacy) pygame installer
 ```
 
 ## Troubleshooting
 
-### No Display / Black Screen
-
-1. Check X11 is running:
-```bash
-echo $DISPLAY
-# Should output: :0
-```
-
-2. Verify XAUTHORITY:
-```bash
-ls -la ~/.Xauthority
-```
-
-3. Run with DISPLAY environment variable:
-```bash
-DISPLAY=:0 python3 photo_frame.py
-```
-
-### Images Not Loading
-
-1. Check image directory exists and contains images:
-```bash
-ls -la ~/digital_photo_frame/images/
-```
-
-2. Check file permissions:
-```bash
-chmod -R 755 ~/digital_photo_frame/images/
-```
-
-3. Check logs for errors:
-```bash
-tail -f ~/digital_photo_frame/photo_frame.log
-```
-
-### Service Won't Start
-
-1. Check service status for errors:
-```bash
-sudo systemctl status photo_frame.service
-```
-
-2. View full service logs:
-```bash
-journalctl -u photo_frame.service -n 50
-```
-
-3. Verify paths in service file:
-```bash
-sudo nano /etc/systemd/system/photo_frame.service
-```
-
-## Advanced Usage
-
-### Multiple Directories
-
-You can create symbolic links to include photos from multiple locations:
+### Sync not working
 
 ```bash
-cd ~/digital_photo_frame/images
-ln -s /media/usb/photos vacation_photos
-ln -s ~/Dropbox/Photos dropbox_photos
+# Test SSH connectivity
+ssh pi@nas.local ls /volume1/frame_photos/horizontal/
+
+# Check sync timer
+sudo systemctl status photo_frame_nas_sync.timer
+journalctl -u photo_frame_nas_sync.service -n 20
+
+# Manual sync
+./sync_from_nas.sh
 ```
 
-### Network Sync
-
-Sync photos from a network location using rsync:
+### No photos displaying
 
 ```bash
-# Add to crontab for automatic sync
-rsync -av user@server:/path/to/photos/ ~/digital_photo_frame/images/
+# Check photos exist locally
+ls /srv/frame/photos/
+
+# Check viewer server
+sudo systemctl status photo_frame_server.service
+curl http://localhost:8080/photos.json
+
+# Check Chromium
+sudo systemctl status photo_frame_viewer.service
 ```
 
-### Custom Transitions
+### NAS prep failing
 
-You can extend the `PhotoFrame` class to implement custom transition effects by modifying the `photo_frame.py` file.
+```bash
+# Check logs
+tail -f /var/log/frame_prepare.log
 
-## Development
+# Verify photo source directory
+ls /volume1/photo/ | head
 
-### Project Structure
-
+# Check output
+ls /volume1/frame_photos/horizontal/ | wc -l
+ls /volume1/frame_photos/vertical/ | wc -l
 ```
-digital_photo_frame/
-├── photo_frame.py          # Main application
-├── config.yaml            # Configuration file
-├── requirements.txt       # Python dependencies
-├── install.sh            # Installation script
-├── photo_frame.service   # Systemd service file
-├── images/               # Photo directory
-└── README.md            # This file
-```
-
-### Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
 This project is open source and available under the MIT License.
-
-## Credits
-
-Created for Raspberry Pi Zero 2 W digital photo frame projects.
