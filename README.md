@@ -7,7 +7,7 @@ A digital photo frame system for Raspberry Pi Zero 2 W with Synology NAS integra
 ```
 Synology NAS (weekly cron)
   prepare_photos.py
-    ├── Scans photo library
+    ├── Fetches photos from Synology Photos (via share link)
     ├── Selects 200 photos (weighted random, favors unseen)
     ├── Generates horizontal/ (1920x1200) versions
     ├── Generates vertical/   (1200x1920) versions
@@ -56,31 +56,24 @@ Install dependencies on the NAS:
 pip3 install -r nas/requirements.txt
 ```
 
-Edit `nas/config.yaml`:
+Edit `nas/config.yaml` — set your Synology Photos share link(s) and passphrase(s):
 
 ```yaml
-source:
-  # Where your photos are stored
-  photos_dir: "/volume1/photo"        # Shared space
-  # photos_dir: "/volume1/homes/<user>/Photos"  # Personal space
-  recursive: true
+synology:
+  base_url: "http://localhost:5000"
+  share_urls:
+    - "https://photos.example.com/mo/sharing/AbCdEfG"
+    - "https://photos.example.com/mo/sharing/HiJkLmN"
+  share_passphrases:
+    - "passphrase-for-first-album"
+    - "passphrase-for-second-album"
 
 selection:
   photos_per_week: 200
-  max_show_count: 10
-  state_db: "/volume1/docker/frame/state.db"
+  state_db: "/volume2/docker/frame/state.db"
 
 output:
-  dir: "/volume1/frame_photos"
-  horizontal:
-    width: 1920
-    height: 1200
-  vertical:
-    width: 1200
-    height: 1920
-  quality: 85
-  blur_radius: 40
-  blur_darken: 0.6
+  dir: "/volume2/frame_photos"
 ```
 
 Test run:
@@ -120,7 +113,7 @@ frame:
 sync:
   nas_host: "nas.local"        # NAS hostname or IP
   nas_user: "pi"               # SSH user on the NAS
-  nas_path: "/volume1/frame_photos"
+  nas_path: "/volume2/frame_photos"
   local_path: "/srv/frame/photos"
 ```
 
@@ -201,7 +194,7 @@ digital_photo_frame/
 
 ```bash
 # Test SSH connectivity
-ssh pi@nas.local ls /volume1/frame_photos/horizontal/
+ssh pi@nas.local ls /volume2/frame_photos/horizontal/
 
 # Check sync timer
 sudo systemctl status photo_frame_nas_sync.timer
@@ -231,12 +224,9 @@ sudo systemctl status photo_frame_viewer.service
 # Check logs
 tail -f /var/log/frame_prepare.log
 
-# Verify photo source directory
-ls /volume1/photo/ | head
-
 # Check output
-ls /volume1/frame_photos/horizontal/ | wc -l
-ls /volume1/frame_photos/vertical/ | wc -l
+ls /volume2/frame_photos/horizontal/ | wc -l
+ls /volume2/frame_photos/vertical/ | wc -l
 ```
 
 ## License

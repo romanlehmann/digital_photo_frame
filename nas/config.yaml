@@ -1,14 +1,17 @@
 # NAS-side photo preparation configuration
 # Runs on Synology NAS via Task Scheduler
 
-# Synology Photos share link
+# Synology Photos share links (supports multiple albums)
 synology:
   # Base URL of your Synology (use localhost since this runs on the NAS)
   base_url: "http://localhost:5000"
-  # Public share URL for your photo album
-  share_url: ""
-  # Passphrase for the shared album
-  share_passphrase: ""
+  # Share URLs and their passphrases (one per album, matched by index)
+  share_urls:
+    - ""
+    # - ""  # add more albums here
+  share_passphrases:
+    - ""
+    # - ""  # matching passphrase for each album
 
 # Photo selection settings
 selection:

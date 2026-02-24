@@ -454,28 +454,61 @@ def main():
     tmp_dir = Path(output_config.get('tmp_dir', '/tmp/frame_downloads'))
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Synology Photos client
-    client = SynologyPhotosClient(
-        base_url=synology_config['base_url'],
-        share_url=synology_config['share_url'],
-        passphrase=synology_config['share_passphrase'],
-    )
+    # Support both single and multi-album config formats
+    share_urls = synology_config.get('share_urls',
+                                     [synology_config.get('share_url', '')])
+    share_passphrases = synology_config.get('share_passphrases',
+                                            [synology_config.get('share_passphrase', '')])
+
+    if len(share_urls) != len(share_passphrases):
+        logger.error("share_urls and share_passphrases must have the same length")
+        sys.exit(1)
+
+    # Filter out empty entries
+    albums = [(url, pw) for url, pw in zip(share_urls, share_passphrases)
+              if url]
+
+    if not albums:
+        logger.error("No share URLs configured")
+        sys.exit(1)
 
     # Initialize database
     db = PhotoDatabase(selection_config['state_db'])
 
     try:
-        # Connect to Synology Photos
-        if not client.initialize_share():
-            raise Exception("Failed to initialize share session")
+        # Fetch items from all configured albums
+        all_items = []
+        # Map item_id -> client index for downloading
+        item_client_map = {}
+        clients = []
 
-        # Fetch all photo items from the album
-        items = client.get_all_items()
-        if not items:
-            raise Exception("No photos found in shared album")
+        for album_idx, (share_url, passphrase) in enumerate(albums):
+            logger.info(f"Connecting to album {album_idx + 1}/{len(albums)}...")
+            client = SynologyPhotosClient(
+                base_url=synology_config['base_url'],
+                share_url=share_url,
+                passphrase=passphrase,
+            )
+
+            if not client.initialize_share():
+                logger.error(f"Failed to initialize album {album_idx + 1}, skipping")
+                continue
+
+            items = client.get_all_items()
+            logger.info(f"Album {album_idx + 1}: {len(items)} photos")
+
+            for item in items:
+                item_client_map[item['id']] = len(clients)
+            all_items.extend(items)
+            clients.append(client)
+
+        if not all_items:
+            raise Exception("No photos found in any album")
+
+        logger.info(f"Total photos across all albums: {len(all_items)}")
 
         # Update database with album contents
-        db.update_items(items)
+        db.update_items(all_items)
 
         # Select photos for this week
         selected_ids = db.get_weighted_selection(
@@ -485,7 +518,7 @@ def main():
 
         if not selected_ids:
             logger.error("No photos selected")
-            db.record_run(len(items), 0, 0, False)
+            db.record_run(len(all_items), 0, 0, False)
             return
 
         # Clean old output and temp files
@@ -511,6 +544,13 @@ def main():
         for idx, item_id in enumerate(selected_ids):
             filename = db.get_filename(item_id)
             download_path = tmp_dir / filename
+
+            # Find the right client for this item
+            client_idx = item_client_map.get(item_id)
+            if client_idx is None:
+                logger.warning(f"Skipping item {item_id}: no client found")
+                continue
+            client = clients[client_idx]
 
             # Download original
             if not client.download_item(item_id, download_path):
@@ -538,7 +578,7 @@ def main():
             time.sleep(0.2)  # Rate limiting
 
         db.mark_selected(selected_ids)
-        db.record_run(len(items), len(selected_ids), processed, True)
+        db.record_run(len(all_items), len(selected_ids), processed, True)
 
         elapsed = time.time() - t_start
         logger.info(

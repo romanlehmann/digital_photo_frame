@@ -67,7 +67,9 @@ python -c "from PIL import Image; import yaml, requests; print('OK')"
 deactivate
 ```
 
-## 5. Create a share link in Synology Photos
+## 5. Create share links in Synology Photos
+
+Repeat for each album you want to include:
 
 1. Open **Synology Photos** in your browser
 2. Go to the album you want to display on the frames
@@ -75,6 +77,8 @@ deactivate
 4. Enable **Share link**
 5. Set a **passphrase**
 6. Copy the share URL (e.g. `https://photos.example.com/mo/sharing/AbCdEfG`)
+
+You can add multiple albums — photos from all albums are pooled together for selection.
 
 ## 6. Configure
 
@@ -90,10 +94,13 @@ Key settings to adjust:
 synology:
   # Use localhost since the script runs on the NAS itself
   base_url: "http://localhost:5000"
-  # Paste your share URL here
-  share_url: "https://photos.example.com/mo/sharing/AbCdEfG"
-  # The passphrase you set
-  share_passphrase: "your-passphrase"
+  # Add one or more albums (URLs and passphrases matched by index)
+  share_urls:
+    - "https://photos.example.com/mo/sharing/AbCdEfG"
+    - "https://photos.example.com/mo/sharing/HiJkLmN"
+  share_passphrases:
+    - "passphrase-for-first-album"
+    - "passphrase-for-second-album"
 
 selection:
   photos_per_week: 200
