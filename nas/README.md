@@ -247,7 +247,7 @@ deactivate
 ### Check logs
 
 ```bash
-tail -50 /var/log/frame_prepare.log
+tail -50 /volume2/docker/frame/prepare_photos.log
 ```
 
 ### Check selection state

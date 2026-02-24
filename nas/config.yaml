@@ -44,4 +44,4 @@ output:
 # Logging
 logging:
   level: INFO
-  file: "/var/log/frame_prepare.log"
+  file: "/volume2/docker/frame/prepare_photos.log"

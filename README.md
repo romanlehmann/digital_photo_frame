@@ -222,7 +222,7 @@ sudo systemctl status photo_frame_viewer.service
 
 ```bash
 # Check logs
-tail -f /var/log/frame_prepare.log
+tail -f /volume2/docker/frame/prepare_photos.log
 
 # Check output
 ls /volume2/docker/frame/frame_photos/horizontal/ | wc -l
