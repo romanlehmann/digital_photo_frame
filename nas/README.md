@@ -49,25 +49,22 @@ cd /volume1/docker/frame
 git clone https://github.com/rwkaspar/digital_photo_frame.git
 ```
 
-## 4. Install Python dependencies
+## 4. Create virtual environment and install dependencies
 
 ```bash
 ssh your_admin_user@nas.local
+cd /volume1/docker/frame/scripts
 
-# Install pip if not available
-python3 -m ensurepip
+# Create venv
+python3 -m venv venv
 
-# Install dependencies
-pip3 install Pillow PyYAML
+# Activate and install dependencies
+source venv/bin/activate
+pip install -r requirements.txt
 
 # Verify
-python3 -c "from PIL import Image; import yaml; print('OK')"
-```
-
-If `pip3 install` fails due to permissions:
-
-```bash
-sudo pip3 install Pillow PyYAML
+python -c "from PIL import Image; import yaml; print('OK')"
+deactivate
 ```
 
 ## 5. Configure
@@ -116,8 +113,9 @@ mkdir -p /volume1/frame_photos
 ## 6. Test run
 
 ```bash
-python3 /volume1/docker/frame/scripts/prepare_photos.py \
-        /volume1/docker/frame/scripts/config.yaml
+/volume1/docker/frame/scripts/venv/bin/python \
+    /volume1/docker/frame/scripts/prepare_photos.py \
+    /volume1/docker/frame/scripts/config.yaml
 ```
 
 This will take a few minutes (processing 200 photos). When done, verify:
@@ -141,7 +139,7 @@ ls /volume1/frame_photos/vertical/ | wc -l     # should show 200
 5. **Task Settings** tab:
    - User-defined script:
      ```
-     python3 /volume1/docker/frame/scripts/prepare_photos.py /volume1/docker/frame/scripts/config.yaml
+     /volume1/docker/frame/scripts/venv/bin/python /volume1/docker/frame/scripts/prepare_photos.py /volume1/docker/frame/scripts/config.yaml
      ```
    - (Optional) Send run details by email: check to receive error notifications
 
@@ -177,7 +175,9 @@ After setup:
 ├── docker/frame/
 │   ├── scripts/
 │   │   ├── prepare_photos.py     # The preparation script
-│   │   └── config.yaml           # Configuration
+│   │   ├── config.yaml           # Configuration
+│   │   ├── requirements.txt      # Python dependencies
+│   │   └── venv/                 # Python virtual environment
 │   └── state.db                  # SQLite tracking database
 └── frame_photos/                 # Output (synced to Pi frames)
     ├── horizontal/               # 1920x1200 versions
@@ -207,18 +207,20 @@ ls /volume1/homes/*/Photos/
 Run the script as root or fix permissions:
 
 ```bash
-sudo python3 /volume1/docker/frame/scripts/prepare_photos.py \
-             /volume1/docker/frame/scripts/config.yaml
+sudo /volume1/docker/frame/scripts/venv/bin/python \
+     /volume1/docker/frame/scripts/prepare_photos.py \
+     /volume1/docker/frame/scripts/config.yaml
 ```
 
 ### "No module named PIL"
 
-Pillow is not installed. Try:
+The venv is missing dependencies. Reinstall:
 
 ```bash
-sudo pip3 install Pillow
-# or if pip3 is not found:
-sudo python3 -m pip install Pillow
+cd /volume1/docker/frame/scripts
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
 ```
 
 ### Check logs
