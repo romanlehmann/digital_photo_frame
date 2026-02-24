@@ -99,10 +99,13 @@ Set up a weekly scheduled task in **DSM > Control Panel > Task Scheduler**:
 
 ```bash
 sudo apt-get update && sudo apt-get upgrade -y
-sudo apt-get install -y git python3 python3-pip chromium-browser
+sudo apt-get install -y git python3 python3-venv chromium-browser
 git clone https://github.com/rwkaspar/digital_photo_frame.git
 cd digital_photo_frame
-pip3 install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
 ```
 
 #### Configure
