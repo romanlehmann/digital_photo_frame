@@ -18,8 +18,8 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Launch Chromium in kiosk mode
-exec chromium \
+# Launch Chromium in kiosk mode (use binary directly to skip RAM warning)
+exec /usr/lib/chromium/chromium \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
