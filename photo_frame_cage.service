@@ -1,0 +1,19 @@
+[Unit]
+Description=Digital Photo Frame Viewer (Cage + Chromium)
+After=network.target photo_frame_server.service
+Wants=photo_frame_server.service
+
+[Service]
+Type=simple
+User=robert
+TTYPath=/dev/tty1
+Environment="WLR_LIBINPUT_NO_DEVICES=1"
+Environment="XDG_RUNTIME_DIR=/tmp/frame-runtime"
+ExecStartPre=/bin/mkdir -p /tmp/frame-runtime
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/cage -- chromium --kiosk --noerrdialogs --disable-infobars --no-first-run --check-for-update-interval=31536000 --disable-session-crashed-bubble --disable-features=TranslateUI --disable-component-update --disable-pinch --ozone-platform=wayland http://localhost:8080/
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
