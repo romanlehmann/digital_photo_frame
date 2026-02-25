@@ -175,18 +175,12 @@ digital_photo_frame/
 │   ├── config.yaml              # NAS: configuration template
 │   ├── requirements.txt         # NAS: Pillow, pillow-heif, PyYAML, requests
 │   └── README.md                # NAS: detailed DSM setup guide
-├── viewer/
-│   └── index.html               # Web-based viewer (Chromium alternative)
-├── viewer_server.py             # HTTP server (Chromium alternative)
 ├── start_slideshow.sh           # Pi: mpv DRM slideshow launcher
-├── start_kiosk.sh               # Pi: Chromium kiosk launcher (alternative)
 ├── config_frame.yaml            # Pi: per-frame configuration
 ├── sync_from_nas.sh             # Pi: rsync photos from NAS
 ├── photo_frame_fbi.service      # Pi: systemd slideshow service
 ├── photo_frame_nas_sync.service # Pi: systemd sync service
 ├── photo_frame_nas_sync.timer   # Pi: weekly sync timer
-├── photo_frame_server.service   # Pi: HTTP server service (Chromium alt.)
-├── photo_frame_viewer.service   # Pi: Chromium kiosk service (alternative)
 └── requirements.txt             # Pi: Python dependencies
 ```
 
