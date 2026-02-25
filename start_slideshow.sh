@@ -1,6 +1,6 @@
 #!/bin/bash
 # Framebuffer slideshow for digital photo frame.
-# Uses fbi (framebuffer imageviewer) — no X11 or browser needed.
+# Uses mpv with DRM output — works with KMS on modern Pi OS.
 # Lightweight enough for Pi Zero 2W (512MB RAM).
 #
 # Usage: ./start_slideshow.sh [config_file]
@@ -41,21 +41,18 @@ fi
 
 echo "Starting slideshow: $PHOTO_COUNT photos, ${INTERVAL}s interval"
 
-# Kill any existing fbi instance
-killall fbi 2>/dev/null || true
+# Build a playlist file (shuffled)
+PLAYLIST="/tmp/frame_playlist.txt"
+find "$PHOTOS_DIR" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) | sort -R > "$PLAYLIST"
 
-# Launch fbi slideshow
-#   -a          = auto-zoom to fit screen
-#   -t N        = N seconds per photo
-#   -u          = random order
-#   -T 1        = use virtual terminal 1
-#   --noverbose = hide filename/info bar
-#   --blend N   = blend transition (milliseconds)
-exec fbi \
-    -a \
-    -t "$INTERVAL" \
-    -u \
-    -T 1 \
-    --noverbose \
-    --blend 500 \
-    "$PHOTOS_DIR"/*.jpg "$PHOTOS_DIR"/*.jpeg "$PHOTOS_DIR"/*.png 2>/dev/null
+# Launch mpv with DRM video output (no X11 needed)
+exec mpv \
+    --vo=drm \
+    --image-display-duration="$INTERVAL" \
+    --loop-playlist=inf \
+    --shuffle \
+    --no-audio \
+    --no-osc \
+    --no-input-default-bindings \
+    --really-quiet \
+    --playlist="$PLAYLIST"

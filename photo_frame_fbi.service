@@ -1,5 +1,5 @@
 [Unit]
-Description=Digital Photo Frame Slideshow (fbi)
+Description=Digital Photo Frame Slideshow (mpv)
 After=network.target
 
 [Service]
