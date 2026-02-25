@@ -25,6 +25,11 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
 from urllib.parse import urlparse
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 
 def setup_logging(config: dict):
@@ -168,8 +173,15 @@ class SynologyPhotosClient:
             if not items:
                 break
 
+            VIDEO_EXTS = {'.mov', '.mp4', '.avi', '.mkv', '.wmv', '.m4v'}
             for item in items:
-                if item.get('type') in ('photo', 'video') or 'filename' in item:
+                filename = item.get('filename', '')
+                ext = os.path.splitext(filename)[1].lower()
+                if ext in VIDEO_EXTS:
+                    continue
+                if item.get('type') == 'video':
+                    continue
+                if item.get('type') == 'photo' or 'filename' in item:
                     all_items.append(item)
 
             logger.info(
