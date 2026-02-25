@@ -389,12 +389,11 @@ def create_blur_fill(image: Image.Image, target_w: int, target_h: int,
     image is simply scaled to cover with a slight center crop.
     """
     img_w, img_h = image.size
+    src_landscape = img_w >= img_h
+    tgt_landscape = target_w >= target_h
 
-    scale_fit = min(target_w / img_w, target_h / img_h)
-    fit_w = int(img_w * scale_fit)
-    fit_h = int(img_h * scale_fit)
-
-    if fit_w >= target_w * 0.95 and fit_h >= target_h * 0.95:
+    # Same orientation (landscape->landscape or portrait->portrait): just crop to fill
+    if src_landscape == tgt_landscape:
         scale_cover = max(target_w / img_w, target_h / img_h)
         cover_w = int(img_w * scale_cover)
         cover_h = int(img_h * scale_cover)
@@ -402,6 +401,11 @@ def create_blur_fill(image: Image.Image, target_w: int, target_h: int,
         left = (cover_w - target_w) // 2
         top = (cover_h - target_h) // 2
         return result.crop((left, top, left + target_w, top + target_h))
+
+    # Cross-orientation: blur-fill background
+    scale_fit = min(target_w / img_w, target_h / img_h)
+    fit_w = int(img_w * scale_fit)
+    fit_h = int(img_h * scale_fit)
 
     scale_cover = max(target_w / img_w, target_h / img_h)
     cover_w = int(img_w * scale_cover)
