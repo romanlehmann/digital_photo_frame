@@ -1,72 +1,79 @@
 # Digital Photo Frame
 
-A digital photo frame system for Raspberry Pi Zero 2 W with Synology NAS integration. Photos are automatically selected, resized, and prepared on the NAS, then synced to one or more Pi frames.
+A digital photo frame system for Raspberry Pi Zero 2 W with Synology NAS integration. Photos are automatically selected, resized, and prepared on the NAS, then synced to one or more Pi frames over Tailscale.
 
 ## How It Works
 
 ```
-Synology NAS (weekly cron)
+Synology NAS (weekly Task Scheduler, Mon 03:00)
   prepare_photos.py
-    ├── Fetches photos from Synology Photos (via share link)
+    ├── Connects to Synology Photos via share link(s)
     ├── Selects 200 photos (weighted random, favors unseen)
-    ├── Generates horizontal/ (1920x1200) versions
-    ├── Generates vertical/   (1200x1920) versions
-    └── Blur-fills mismatched aspect ratios
+    ├── Skips videos, supports HEIC
+    ├── Same-orientation: crop to fill (no bars)
+    ├── Cross-orientation: blur-fill background
+    ├── Generates horizontal/ (1920x1200)
+    └── Generates vertical/   (1200x1920)
 
-        │ rsync (weekly, 1h later)
+        │ rsync over Tailscale (weekly Mon 04:00)
         ▼
 
 Raspberry Pi Zero 2 W
-  viewer_server.py (HTTP :8080)
-    └── Chromium kiosk → slideshow with fade transitions
+  mpv --vo=drm → slideshow directly on framebuffer
 ```
 
-Portrait photos on a landscape frame (and vice versa) get a **blurred + darkened background fill** instead of black bars. Photos that nearly match the target aspect ratio are simply scaled to cover with a slight crop.
-
-Each Pi frame syncs only the folder matching its orientation, so you can mount frames in either direction.
+Frames can be anywhere with internet access — Tailscale mesh VPN connects them to the NAS without port forwarding.
 
 ## Features
 
-- **NAS-side processing** - heavy image work runs on the NAS, not the Pi
-- **Multi-frame support** - one NAS prepares photos for any number of frames
-- **Both orientations** - horizontal (1920x1200) and vertical (1200x1920)
-- **Blur-fill backgrounds** - no black bars, ever
-- **Smart selection** - weighted random favoring unseen photos, resets after cooldown
-- **Web-based viewer** - fade transitions, shuffle, touch/swipe, hot corner shutdown
-- **Automatic schedule** - NAS prepares weekly, Pi syncs 1 hour later
+- **NAS-side processing** — heavy image work runs on the NAS, not the Pi
+- **Multi-frame support** — one NAS prepares photos for any number of frames
+- **Both orientations** — horizontal (1920x1200) and vertical (1200x1920)
+- **Smart fill** — same orientation crops to fill, cross-orientation gets blur-fill backgrounds
+- **HEIC support** — handles iPhone photos natively via pillow-heif
+- **Videos skipped** — automatically filters out .mov, .mp4, etc.
+- **Smart selection** — weighted random favoring unseen photos, resets after cooldown
+- **Lightweight viewer** — mpv with DRM output, no X11 or browser needed
+- **Remote frames** — Tailscale VPN allows frames anywhere, not just your LAN
+- **Automatic schedule** — NAS prepares weekly, Pi syncs 1 hour later
 
 ## Requirements
 
 ### Hardware
 - Synology NAS (any model running DSM 7)
 - Raspberry Pi Zero 2 W (or any Pi) per frame
-- Display with 1920x1200 resolution (HDMI or DSI)
+- Display with HDMI input
 
 ### Software
 - Python 3.7+ on both NAS and Pi
+- Tailscale on NAS and each Pi (for remote access)
 - SSH key access from Pi to NAS (for rsync)
+- rsync service enabled on the NAS (DSM > Control Panel > File Services > rsync)
 
 ## Setup
 
 ### 1. NAS Setup
 
-Install dependencies on the NAS:
+Create the working directory and venv:
 
 ```bash
-pip3 install -r nas/requirements.txt
+mkdir -p /volume2/docker/frame/scripts
+cd /volume2/docker/frame/scripts
+python3 -m venv .venv
+.venv/bin/pip install -r /path/to/nas/requirements.txt
 ```
 
-Edit `nas/config.yaml` — set your Synology Photos share link(s) and passphrase(s):
+Copy `nas/prepare_photos.py` and `nas/config.yaml` to `/volume2/docker/frame/scripts/`.
+
+Edit `config.yaml` — set your Synology Photos share link(s) and passphrase(s):
 
 ```yaml
 synology:
-  base_url: "http://localhost:5000"
+  local_api_base: "https://localhost:5443"
   share_urls:
     - "https://photos.example.com/mo/sharing/AbCdEfG"
-    - "https://photos.example.com/mo/sharing/HiJkLmN"
   share_passphrases:
-    - "passphrase-for-first-album"
-    - "passphrase-for-second-album"
+    - "your-passphrase"
 
 selection:
   photos_per_week: 200
@@ -79,26 +86,34 @@ output:
 Test run:
 
 ```bash
-python3 nas/prepare_photos.py nas/config.yaml
+.venv/bin/python prepare_photos.py config.yaml
 ```
 
 Set up a weekly scheduled task in **DSM > Control Panel > Task Scheduler**:
+- User: root
 - Schedule: Monday 03:00
-- Command: `python3 /path/to/nas/prepare_photos.py /path/to/nas/config.yaml`
+- Command: `/volume2/docker/frame/scripts/.venv/bin/python /volume2/docker/frame/scripts/prepare_photos.py /volume2/docker/frame/scripts/config.yaml`
 
-### 2. Pi Setup
+### 2. Tailscale Setup
+
+Install Tailscale on the NAS and each Pi so they can reach each other from anywhere:
+
+- **NAS**: Install via Package Center or [Tailscale docs](https://tailscale.com/kb/1131/synology)
+- **Pi**: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
+
+Note the NAS's Tailscale IP (e.g. `100.x.y.z`) for the Pi config.
+
+### 3. Pi Setup
 
 #### Install
 
 ```bash
-sudo apt-get update && sudo apt-get upgrade -y
-sudo apt-get install -y git python3 python3-venv chromium-browser
+sudo apt update
+sudo apt install -y git python3 python3-venv mpv fbi
 git clone https://github.com/rwkaspar/digital_photo_frame.git
 cd digital_photo_frame
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-deactivate
+venv/bin/pip install -r requirements.txt
 ```
 
 #### Configure
@@ -107,85 +122,72 @@ Edit `config_frame.yaml` for this frame:
 
 ```yaml
 frame:
-  name: "living-room"          # Friendly name
+  name: "living-room"
   orientation: "horizontal"    # or "vertical"
 
 sync:
-  nas_host: "nas.local"        # NAS hostname or IP
-  nas_user: "pi"               # SSH user on the NAS
+  nas_host: "100.x.y.z"       # Tailscale IP of NAS
+  nas_user: "robert"           # SSH user on the NAS
   nas_path: "/volume2/docker/frame/frame_photos"
   local_path: "/srv/frame/photos"
+
+slideshow:
+  interval: 30                 # seconds per photo
 ```
 
 #### SSH key setup (passwordless rsync)
 
 ```bash
-ssh-keygen -t ed25519  # accept defaults
-ssh-copy-id pi@nas.local
+ssh-keygen -t ed25519 -N ""
+ssh-copy-id robert@100.x.y.z
 ```
 
-#### Test sync
+#### Test
 
 ```bash
+# Test sync
 chmod +x sync_from_nas.sh
 ./sync_from_nas.sh
+
+# Test slideshow (Ctrl+C to stop)
+sudo ./start_slideshow.sh
 ```
 
 #### Enable services
 
 ```bash
-# Photo sync timer (weekly Monday 04:00, 1h after NAS prep)
+# Photo sync timer (weekly Monday 04:00)
 sudo cp photo_frame_nas_sync.service /etc/systemd/system/
 sudo cp photo_frame_nas_sync.timer /etc/systemd/system/
 sudo systemctl enable --now photo_frame_nas_sync.timer
 
-# Web viewer server
-sudo cp photo_frame_server.service /etc/systemd/system/
-sudo systemctl enable --now photo_frame_server.service
-
-# Chromium kiosk
-sudo cp photo_frame_viewer.service /etc/systemd/system/
-sudo systemctl enable --now photo_frame_viewer.service
+# Slideshow (starts on boot)
+sudo cp photo_frame_fbi.service /etc/systemd/system/
+sudo systemctl enable --now photo_frame_fbi
 ```
-
-### 3. Pi Optimization
-
-```bash
-sudo raspi-config
-# System Options > Boot / Auto Login > Console Autologin
-# Performance Options > GPU Memory > 128
-```
-
-Disable screen blanking in `/boot/config.txt`:
-```
-hdmi_blanking=1
-```
-
-## Viewer Controls
-
-- **ESC / Q** - Trigger shutdown dialog
-- **SPACE / Right Arrow** - Skip to next image
-- **Swipe** - Next image (touchscreen)
-- **Hot corner** (top-left) - Shutdown Pi
 
 ## Project Structure
 
 ```
 digital_photo_frame/
 ├── nas/
-│   ├── prepare_photos.py      # NAS: photo selection + blur-fill processing
-│   ├── config.yaml            # NAS: configuration
-│   └── requirements.txt       # NAS: Python dependencies
+│   ├── prepare_photos.py        # NAS: photo selection + processing
+│   ├── config.yaml              # NAS: configuration template
+│   ├── requirements.txt         # NAS: Pillow, pillow-heif, PyYAML, requests
+│   └── README.md                # NAS: detailed DSM setup guide
 ├── viewer/
-│   └── index.html             # Web-based slideshow viewer
-├── viewer_server.py           # HTTP server (port 8080)
-├── config_frame.yaml          # Pi: per-frame configuration
-├── sync_from_nas.sh           # Pi: rsync photos from NAS
-├── photo_frame_nas_sync.service  # Pi: systemd sync service
-├── photo_frame_nas_sync.timer    # Pi: weekly sync timer
-├── photo_frame_server.service    # Pi: HTTP server service
-├── photo_frame_viewer.service    # Pi: Chromium kiosk service
-└── requirements.txt           # Pi: Python dependencies
+│   └── index.html               # Web-based viewer (Chromium alternative)
+├── viewer_server.py             # HTTP server (Chromium alternative)
+├── start_slideshow.sh           # Pi: mpv DRM slideshow launcher
+├── start_kiosk.sh               # Pi: Chromium kiosk launcher (alternative)
+├── config_frame.yaml            # Pi: per-frame configuration
+├── sync_from_nas.sh             # Pi: rsync photos from NAS
+├── photo_frame_fbi.service      # Pi: systemd slideshow service
+├── photo_frame_nas_sync.service # Pi: systemd sync service
+├── photo_frame_nas_sync.timer   # Pi: weekly sync timer
+├── photo_frame_server.service   # Pi: HTTP server service (Chromium alt.)
+├── photo_frame_viewer.service   # Pi: Chromium kiosk service (alternative)
+└── requirements.txt             # Pi: Python dependencies
 ```
 
 ## Troubleshooting
@@ -194,7 +196,9 @@ digital_photo_frame/
 
 ```bash
 # Test SSH connectivity
-ssh pi@nas.local ls /volume2/docker/frame/frame_photos/horizontal/
+ssh robert@100.x.y.z "ls /volume2/docker/frame/frame_photos/horizontal/"
+
+# Check rsync is enabled on NAS: DSM > Control Panel > File Services > rsync
 
 # Check sync timer
 sudo systemctl status photo_frame_nas_sync.timer
@@ -210,12 +214,12 @@ journalctl -u photo_frame_nas_sync.service -n 20
 # Check photos exist locally
 ls /srv/frame/photos/
 
-# Check viewer server
-sudo systemctl status photo_frame_server.service
-curl http://localhost:8080/photos.json
+# Check slideshow service
+sudo systemctl status photo_frame_fbi
+journalctl -u photo_frame_fbi -n 20
 
-# Check Chromium
-sudo systemctl status photo_frame_viewer.service
+# Test mpv directly
+sudo mpv --vo=drm --drm-device=/dev/dri/card0 --image-display-duration=5 /srv/frame/photos/*.jpg
 ```
 
 ### NAS prep failing
@@ -227,6 +231,16 @@ tail -f /volume2/docker/frame/prepare_photos.log
 # Check output
 ls /volume2/docker/frame/frame_photos/horizontal/ | wc -l
 ls /volume2/docker/frame/frame_photos/vertical/ | wc -l
+```
+
+### Black screen after reboot
+
+```bash
+# The DRM display may need a VT switch
+sudo chvt 2; sleep 1; sudo chvt 1
+
+# Or restart the slideshow
+sudo systemctl restart photo_frame_fbi
 ```
 
 ## License
