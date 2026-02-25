@@ -18,17 +18,19 @@ import time
 import shutil
 import yaml
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 
 
 def setup_logging(config: dict):
     """Configure logging from config."""
     log_config = config.get('logging', {})
-    level = getattr(logging, log_config.get('level', 'INFO').upper())
+    level = getattr(logging, log_config.get('level', 'DEBUG').upper())
     log_file = log_config.get('file', '')
 
     handlers = [logging.StreamHandler()]
@@ -56,22 +58,29 @@ def load_config(config_path: str) -> dict:
 # ---------------------------------------------------------------------------
 
 class SynologyPhotosClient:
-    """Client for Synology Photos API via public share links."""
+    """Client for Synology Photos API via public share links.
 
-    def __init__(self, base_url: str, share_url: str, passphrase: str):
-        self.base_url = base_url.rstrip('/')
+    Uses localhost API access to avoid reverse proxy cookie issues.
+    """
+
+    def __init__(self, share_url: str, passphrase: str,
+                 local_api_base: str = 'https://localhost:5443'):
         self.share_url = share_url
         self.passphrase = passphrase
+        # External URL for the reverse proxy
+        parsed = urlparse(share_url)
+        self.external_base = f"{parsed.scheme}://{parsed.netloc}"
+        # Local URL for direct NAS access (bypasses Cloudflare cookie stripping)
+        self.local_base = local_api_base.rstrip('/')
         self.session = requests.Session()
+        self.session.verify = False  # localhost cert won't match
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
         })
         self.share_token = self._extract_share_token(share_url)
-        self._sharing_id = None
-        logger.info(f"Initialized client with share token: {self.share_token}")
+        logger.info(f"Initialized client: token={self.share_token}")
 
     def _extract_share_token(self, share_url: str) -> str:
-        """Extract the share token from the share URL."""
         parsed = urlparse(share_url)
         path_parts = parsed.path.strip('/').split('/')
         if 'sharing' in path_parts:
@@ -80,14 +89,43 @@ class SynologyPhotosClient:
                 return path_parts[idx + 1]
         raise ValueError(f"Could not extract share token from: {share_url}")
 
+    def _local_api_url(self, api_name: str) -> str:
+        """Build the localhost API URL (bypasses Cloudflare)."""
+        return f"{self.local_base}/webapi/entry.cgi/{api_name}"
+
+    def _external_api_url(self, api_name: str) -> str:
+        """Build the external API URL."""
+        return f"{self.external_base}/webapi/entry.cgi/{api_name}"
+
     def initialize_share(self) -> bool:
-        """Initialize the share session."""
+        """Log in to the shared album to obtain a sharing_sid cookie.
+
+        Uses localhost to bypass Cloudflare's Set-Cookie stripping.
+        Flow: sharing login -> passphrase auth (if password-protected).
+        """
         try:
             logger.info("Initializing share session...")
-            resp = self.session.get(self.share_url, allow_redirects=True)
-            resp.raise_for_status()
-            self._sharing_id = self.share_token
-            logger.info(f"Share session initialized. Sharing ID: {self._sharing_id}")
+            api_url = f"{self.local_base}/webapi/entry.cgi"
+
+            # Step 1: Log in to the share (do NOT set x-syno-sharing yet)
+            login_data = {
+                'api': 'SYNO.Core.Sharing.Login',
+                'method': 'login',
+                'version': 1,
+                'sharing_id': self.share_token,
+                'password': self.passphrase or '',
+            }
+            resp = self.session.post(api_url, data=login_data, timeout=10)
+            result = resp.json()
+            logger.info(f"Sharing login: {result}")
+            logger.debug(f"Cookies after sharing login: {dict(self.session.cookies)}")
+
+            if not result.get('success'):
+                logger.error(f"Sharing login failed: {result}")
+                return False
+
+            # Now set the sharing header for all subsequent API calls
+            self.session.headers['x-syno-sharing'] = self.share_token
             return True
         except Exception as e:
             logger.error(f"Failed to initialize share: {e}")
@@ -95,28 +133,24 @@ class SynologyPhotosClient:
 
     def list_items(self, offset: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
         """List items in the shared album."""
+        api = 'SYNO.Foto.Browse.Item'
+        data = {
+            'api': api,
+            'method': 'list',
+            'version': 1,
+            'offset': offset,
+            'limit': limit,
+        }
         try:
-            url = urljoin(self.base_url + '/', 'webapi/entry.cgi')
-            data = {
-                'api': 'SYNO.Foto.Browse.Item',
-                'method': 'list',
-                'version': '4',
-                'offset': offset,
-                'limit': limit,
-                'sort_by': 'takentime',
-                'sort_direction': 'asc',
-                'passphrase': self.passphrase,
-                '_sharing_id': self._sharing_id,
-            }
-            resp = self.session.post(url, data=data)
+            resp = self.session.post(self._local_api_url(api), data=data)
             resp.raise_for_status()
             result = resp.json()
-            if not result.get('success'):
-                logger.error(f"API returned error: {result}")
-                return None
-            return result.get('data', {})
+            if result.get('success'):
+                return result.get('data', {})
+            logger.error(f"list_items failed: {result}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to list items: {e}")
+            logger.error(f"list_items exception: {e}")
             return None
 
     def get_all_items(self) -> List[Dict[str, Any]]:
@@ -135,7 +169,7 @@ class SynologyPhotosClient:
                 break
 
             for item in items:
-                if item.get('type') == 'photo':
+                if item.get('type') in ('photo', 'video') or 'filename' in item:
                     all_items.append(item)
 
             logger.info(
@@ -154,16 +188,14 @@ class SynologyPhotosClient:
 
     def download_item(self, item_id: int, output_path: Path) -> bool:
         """Download a single item to the specified path."""
+        api = 'SYNO.Foto.Download'
+        url = self._local_api_url(api)
         try:
-            url = urljoin(self.base_url + '/', 'webapi/entry.cgi')
             data = {
-                'api': 'SYNO.Foto.Download',
+                'api': api,
                 'method': 'download',
-                'version': '2',
-                'item_id': f'[{item_id}]',
-                'passphrase': self.passphrase,
-                '_sharing_id': self._sharing_id,
-                'download_type': 'source',
+                'version': 1,
+                'unit_id': f'[{item_id}]',
                 'force_download': 'true',
             }
             resp = self.session.post(url, data=data, stream=True)
@@ -485,9 +517,10 @@ def main():
         for album_idx, (share_url, passphrase) in enumerate(albums):
             logger.info(f"Connecting to album {album_idx + 1}/{len(albums)}...")
             client = SynologyPhotosClient(
-                base_url=synology_config['base_url'],
                 share_url=share_url,
                 passphrase=passphrase,
+                local_api_base=synology_config.get(
+                    'local_api_base', 'https://localhost:5443'),
             )
 
             if not client.initialize_share():

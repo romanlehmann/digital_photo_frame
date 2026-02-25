@@ -194,9 +194,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Config files with credentials
-nas/config.yaml
-config_frame.yaml
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to

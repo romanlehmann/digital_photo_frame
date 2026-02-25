@@ -1,0 +1,30 @@
+# Pi-side configuration for digital photo frame
+# Each frame gets its own copy with orientation set
+
+frame:
+  # Friendly name for this frame
+  name: "living-room"
+  # Which folder to sync: "horizontal" (1920x1200) or "vertical" (1200x1920)
+  orientation: "horizontal"
+
+# Sync settings (rsync from NAS)
+sync:
+  nas_host: "nas.local"
+  nas_user: "pi"
+  # Path on the NAS where prepare_photos.py writes output
+  nas_path: "/volume2/docker/frame/frame_photos"
+  # Local path where photos are stored on the Pi
+  local_path: "/srv/frame/photos"
+
+# Slideshow settings
+slideshow:
+  interval: 10
+  transition: "fade"
+  fade_duration: 1.0
+  hot_corner_size: 50
+  hot_corner_position: "top-left"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "/var/log/photo_frame.log"

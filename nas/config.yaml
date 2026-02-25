@@ -1,0 +1,47 @@
+# NAS-side photo preparation configuration
+# Runs on Synology NAS via Task Scheduler
+
+# Synology Photos share links (supports multiple albums)
+synology:
+  # Local Photos API URL for login (bypasses Cloudflare cookie stripping)
+  local_api_base: "https://localhost:5443"
+  # Share URLs and their passphrases (one per album, matched by index)
+  share_urls:
+    - ""
+    # - ""  # add more albums here
+  share_passphrases:
+    - ""
+    # - ""  # matching passphrase for each album
+
+# Photo selection settings
+selection:
+  photos_per_week: 200
+  # After this many selections a photo enters cooldown (then resets)
+  max_show_count: 10
+  # State database (tracks which photos were shown)
+  state_db: "/volume2/docker/frame/state.db"
+
+# Output settings
+output:
+  # Shared folder that Pi frames sync from
+  dir: "/volume2/docker/frame/frame_photos"
+  # Temp directory for downloaded originals (cleaned up after processing)
+  tmp_dir: "/tmp/frame_downloads"
+  # Target resolutions per orientation
+  horizontal:
+    width: 1920
+    height: 1200
+  vertical:
+    width: 1200
+    height: 1920
+  # JPEG quality (1-95, higher = better quality, larger files)
+  quality: 85
+  # Blur-fill settings for mismatched aspect ratios
+  blur_radius: 40
+  # Darken blurred background (0.0 = black, 1.0 = no darkening)
+  blur_darken: 0.6
+
+# Logging
+logging:
+  level: INFO
+  file: "/volume2/docker/frame/prepare_photos.log"
