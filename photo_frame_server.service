@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/digital_photo_frame
+User=robert
+WorkingDirectory=/home/robert/digital_photo_frame
 Environment="PORT=8080"
-ExecStart=/home/pi/digital_photo_frame/venv/bin/python /home/pi/digital_photo_frame/viewer_server.py /home/pi/digital_photo_frame/config_frame.yaml
+ExecStart=/home/robert/digital_photo_frame/venv/bin/python /home/robert/digital_photo_frame/viewer_server.py /home/robert/digital_photo_frame/config_frame.yaml
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

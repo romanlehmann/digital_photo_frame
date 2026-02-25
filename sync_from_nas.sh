@@ -37,5 +37,5 @@ DEST="${LOCAL_PATH}/"
 mkdir -p "$DEST"
 
 echo "$(date -Iseconds) Syncing ${ORIENTATION} photos from ${SRC}"
-rsync -avz --delete "$SRC" "$DEST"
+rsync -avz --delete -e ssh "$SRC" "$DEST"
 echo "$(date -Iseconds) Sync complete"

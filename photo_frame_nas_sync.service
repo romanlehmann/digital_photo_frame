@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=pi
-ExecStart=/home/pi/digital_photo_frame/sync_from_nas.sh
+User=robert
+ExecStart=/home/robert/digital_photo_frame/sync_from_nas.sh
 StandardOutput=journal
 StandardError=journal
