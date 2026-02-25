@@ -19,7 +19,7 @@ for i in $(seq 1 30); do
 done
 
 # Launch Chromium in kiosk mode
-exec chromium-browser \
+exec chromium \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
