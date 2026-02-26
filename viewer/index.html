@@ -107,6 +107,21 @@
             display: none;
         }
 
+        #sleep-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            z-index: 1500;
+            display: none;
+        }
+
+        #sleep-overlay.active {
+            display: block;
+        }
+
         #settings-overlay {
             display: none;
             position: fixed;
@@ -345,6 +360,7 @@
     <div id="loading">Loading photos...</div>
     <div id="error"></div>
     <div id="slideshow"></div>
+    <div id="sleep-overlay"></div>
 
     <div id="settings-overlay">
         <h1>Settings</h1>
@@ -836,6 +852,42 @@
             }
             touchStartX = null;
         });
+
+        // Sleep mode: poll server, show black overlay when sleeping
+        const sleepOverlay = document.getElementById('sleep-overlay');
+        let isSleeping = false;
+
+        // Tap black screen to open settings (to change schedule / wake up)
+        sleepOverlay.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            openSettings();
+        });
+        sleepOverlay.addEventListener('click', () => openSettings());
+
+        async function checkSleep() {
+            try {
+                const resp = await fetch('/schedule');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.sleeping && !isSleeping) {
+                        // Enter sleep
+                        isSleeping = true;
+                        sleepOverlay.classList.add('active');
+                        if (intervalId) clearInterval(intervalId);
+                    } else if (!data.sleeping && isSleeping) {
+                        // Wake up
+                        isSleeping = false;
+                        sleepOverlay.classList.remove('active');
+                        intervalId = setInterval(showNextPhoto, config.interval);
+                    }
+                }
+            } catch (e) {
+                console.error('Sleep check failed:', e);
+            }
+        }
+
+        setInterval(checkSleep, 30000);
+        checkSleep();
 
         // Prevent screen sleep
         if ('wakeLock' in navigator) {

@@ -77,7 +77,7 @@ class SysinfoCache:
 
 
 class EnergySaveManager:
-    """Manages display on/off schedule for energy saving."""
+    """Manages sleep schedule — viewer polls /schedule to show black screen."""
 
     SCHEDULE_FILE = '/tmp/frame-schedule.json'
 
@@ -85,10 +85,7 @@ class EnergySaveManager:
         self.enabled = False
         self.off_time = '22:00'
         self.on_time = '07:00'
-        self.display_off = False
         self._load()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
 
     def _load(self):
         try:
@@ -111,12 +108,17 @@ class EnergySaveManager:
         except Exception as e:
             logger.error(f"Error saving schedule: {e}")
 
+    def is_sleeping(self):
+        if not self.enabled:
+            return False
+        return self._in_off_period()
+
     def get_schedule(self):
         return {
             'enabled': self.enabled,
             'off_time': self.off_time,
             'on_time': self.on_time,
-            'display_off': self.display_off,
+            'sleeping': self.is_sleeping(),
         }
 
     def update_schedule(self, data):
@@ -124,8 +126,6 @@ class EnergySaveManager:
         self.off_time = data.get('off_time', self.off_time)
         self.on_time = data.get('on_time', self.on_time)
         self._save()
-        # Apply immediately
-        self._check()
 
     def _in_off_period(self):
         from datetime import datetime
@@ -136,48 +136,12 @@ class EnergySaveManager:
         off_mins = int(off_parts[0]) * 60 + int(off_parts[1])
         on_mins = int(on_parts[0]) * 60 + int(on_parts[1])
 
-        if off_mins < on_mins:
+        if off_mins > on_mins:
             # e.g. 22:00 - 07:00 (overnight)
             return now_mins >= off_mins or now_mins < on_mins
         else:
             # e.g. 01:00 - 06:00 (same day)
             return off_mins <= now_mins < on_mins
-
-    def _set_display(self, on):
-        try:
-            if on and self.display_off:
-                # Turn display on
-                subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--on'],
-                             capture_output=True, timeout=5,
-                             env={**os.environ, 'WAYLAND_DISPLAY': 'wayland-0',
-                                  'XDG_RUNTIME_DIR': '/tmp/frame-runtime'})
-                self.display_off = False
-                logger.info("Display turned ON (schedule)")
-            elif not on and not self.display_off:
-                # Turn display off
-                subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--off'],
-                             capture_output=True, timeout=5,
-                             env={**os.environ, 'WAYLAND_DISPLAY': 'wayland-0',
-                                  'XDG_RUNTIME_DIR': '/tmp/frame-runtime'})
-                self.display_off = True
-                logger.info("Display turned OFF (energy save)")
-        except Exception as e:
-            logger.error(f"Display control error: {e}")
-
-    def _check(self):
-        if not self.enabled:
-            if self.display_off:
-                self._set_display(True)
-            return
-        if self._in_off_period():
-            self._set_display(False)
-        else:
-            self._set_display(True)
-
-    def _loop(self):
-        while True:
-            self._check()
-            time.sleep(60)
 
 
 # Global singletons, initialized in main()
