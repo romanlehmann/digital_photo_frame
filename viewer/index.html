@@ -278,37 +278,50 @@
         .time-picker {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 2px;
         }
 
-        .time-picker .time-display {
-            font-size: 22px;
+        .time-digit {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .time-digit .time-val {
+            font-size: 24px;
             font-family: 'Courier New', monospace;
             color: #fff;
             background: #333;
-            padding: 8px 14px;
-            border-radius: 8px;
+            padding: 6px 10px;
+            border-radius: 6px;
             border: 2px solid #555;
-            min-width: 70px;
+            min-width: 44px;
             text-align: center;
         }
 
-        .time-picker .time-btn {
-            width: 36px;
-            height: 36px;
+        .time-digit .time-btn {
+            width: 44px;
+            height: 32px;
             border: 2px solid #555;
             border-radius: 6px;
             background: #333;
             color: #fff;
-            font-size: 20px;
+            font-size: 18px;
             display: flex;
             align-items: center;
             justify-content: center;
-            line-height: 1;
         }
 
-        .time-picker .time-btn:active {
+        .time-digit .time-btn:active {
             background: #555;
+        }
+
+        .time-picker .time-colon {
+            font-size: 24px;
+            color: #888;
+            padding: 0 2px;
+            align-self: center;
         }
 
         .schedule-control span.sep {
@@ -396,15 +409,31 @@
         <div class="schedule-control">
             <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
             <div class="time-picker">
-                <button class="time-btn" onclick="adjustTime('off', -1)">-</button>
-                <span class="time-display" id="schedule-off">22:00</span>
-                <button class="time-btn" onclick="adjustTime('off', 1)">+</button>
+                <div class="time-digit">
+                    <button class="time-btn" onclick="adjustTime('off','h',1)">+</button>
+                    <span class="time-val" id="off-h">22</span>
+                    <button class="time-btn" onclick="adjustTime('off','h',-1)">-</button>
+                </div>
+                <span class="time-colon">:</span>
+                <div class="time-digit">
+                    <button class="time-btn" onclick="adjustTime('off','m',5)">+</button>
+                    <span class="time-val" id="off-m">00</span>
+                    <button class="time-btn" onclick="adjustTime('off','m',-5)">-</button>
+                </div>
             </div>
             <span class="sep">-</span>
             <div class="time-picker">
-                <button class="time-btn" onclick="adjustTime('on', -1)">-</button>
-                <span class="time-display" id="schedule-on">07:00</span>
-                <button class="time-btn" onclick="adjustTime('on', 1)">+</button>
+                <div class="time-digit">
+                    <button class="time-btn" onclick="adjustTime('on','h',1)">+</button>
+                    <span class="time-val" id="on-h">07</span>
+                    <button class="time-btn" onclick="adjustTime('on','h',-1)">-</button>
+                </div>
+                <span class="time-colon">:</span>
+                <div class="time-digit">
+                    <button class="time-btn" onclick="adjustTime('on','m',5)">+</button>
+                    <span class="time-val" id="on-m">00</span>
+                    <button class="time-btn" onclick="adjustTime('on','m',-5)">-</button>
+                </div>
             </div>
         </div>
         <div class="settings-buttons">
@@ -625,13 +654,25 @@
         }
 
         // Energy save schedule
+        function setTimeDisplay(which, timeStr) {
+            const parts = (timeStr || '00:00').split(':');
+            document.getElementById(which + '-h').textContent = parts[0];
+            document.getElementById(which + '-m').textContent = parts[1];
+        }
+
+        function getTimeDisplay(which) {
+            const h = document.getElementById(which + '-h').textContent;
+            const m = document.getElementById(which + '-m').textContent;
+            return h + ':' + m;
+        }
+
         async function loadSchedule() {
             try {
                 const resp = await fetch('/schedule');
                 if (resp.ok) {
                     const data = await resp.json();
-                    document.getElementById('schedule-off').textContent = data.off_time || '22:00';
-                    document.getElementById('schedule-on').textContent = data.on_time || '07:00';
+                    setTimeDisplay('off', data.off_time || '22:00');
+                    setTimeDisplay('on', data.on_time || '07:00');
                     const btn = document.getElementById('schedule-btn');
                     if (data.enabled) {
                         btn.classList.add('active');
@@ -644,12 +685,18 @@
             }
         }
 
-        function adjustTime(which, delta) {
-            const el = document.getElementById('schedule-' + which);
-            const parts = el.textContent.split(':');
-            let hours = parseInt(parts[0]);
-            hours = (hours + delta + 24) % 24;
-            el.textContent = String(hours).padStart(2, '0') + ':00';
+        function adjustTime(which, part, delta) {
+            const hEl = document.getElementById(which + '-h');
+            const mEl = document.getElementById(which + '-m');
+            let h = parseInt(hEl.textContent);
+            let m = parseInt(mEl.textContent);
+            if (part === 'h') {
+                h = (h + delta + 24) % 24;
+            } else {
+                m = (m + delta + 60) % 60;
+            }
+            hEl.textContent = String(h).padStart(2, '0');
+            mEl.textContent = String(m).padStart(2, '0');
             saveSchedule();
         }
 
@@ -661,8 +708,8 @@
 
         async function saveSchedule() {
             const enabled = document.getElementById('schedule-btn').classList.contains('active');
-            const off_time = document.getElementById('schedule-off').textContent;
-            const on_time = document.getElementById('schedule-on').textContent;
+            const off_time = getTimeDisplay('off');
+            const on_time = getTimeDisplay('on');
             try {
                 await fetch('/schedule', {
                     method: 'POST',
