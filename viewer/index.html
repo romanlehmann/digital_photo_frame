@@ -244,21 +244,14 @@
         const hotCorner = document.getElementById('hot-corner');
         let holdTimer = null;
 
-        // Long-press hot corner (5 seconds) opens settings
-        function startHold(e) {
+        // Tap hot corner to open settings (testing mode)
+        hotCorner.addEventListener('click', () => openSettings());
+        hotCorner.addEventListener('touchend', (e) => {
             e.preventDefault();
-            holdTimer = setTimeout(() => openSettings(), 5000);
-        }
-        function cancelHold() {
-            if (holdTimer) clearTimeout(holdTimer);
-            holdTimer = null;
-        }
-        hotCorner.addEventListener('mousedown', startHold);
-        hotCorner.addEventListener('mouseup', cancelHold);
-        hotCorner.addEventListener('mouseleave', cancelHold);
-        hotCorner.addEventListener('touchstart', startHold);
-        hotCorner.addEventListener('touchend', cancelHold);
-        hotCorner.addEventListener('touchcancel', cancelHold);
+            openSettings();
+        });
+        // Make hot corner visible for debugging
+        hotCorner.style.background = 'rgba(255,0,0,0.3)';
 
         // Settings overlay
         async function openSettings() {
