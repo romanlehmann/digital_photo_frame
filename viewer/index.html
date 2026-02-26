@@ -50,44 +50,13 @@
 
         #hot-corner {
             position: fixed;
-            width: 120px;
-            height: 120px;
+            top: 0;
+            right: 0;
+            width: 200px;
+            height: 200px;
             z-index: 1000;
-        }
-
-        #hot-corner.top-left {
-            top: 0;
-            left: 0;
-        }
-
-        #hot-corner.top-right {
-            top: 0;
-            right: 0;
-        }
-
-        #hot-corner.bottom-left {
-            bottom: 0;
-            left: 0;
-        }
-
-        #hot-corner.bottom-right {
-            bottom: 0;
-            right: 0;
-        }
-
-        #hot-corner:hover::before,
-        #hot-corner:active::before {
-            content: '⏻';
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 0, 0, 0.3);
-            color: white;
-            font-size: 24px;
-            border-radius: 4px;
+            clip-path: polygon(100% 0, 0 0, 100% 100%);
+            background: rgba(255, 255, 255, 0.08);
         }
 
         #loading {
@@ -223,15 +192,14 @@
             <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
         </div>
     </div>
-    <div id="hot-corner" class="top-left"></div>
+    <div id="hot-corner"></div>
 
     <script>
         // Configuration (loaded from server /config endpoint)
         let config = {
             interval: 300000,         // default 5 min (ms)
             fade_duration: 1.0,       // seconds
-            hot_corner_size: 50,
-            hot_corner_position: 'top-left',
+            hot_corner_size: 200,
         };
 
         let photos = [];
@@ -244,14 +212,13 @@
         const hotCorner = document.getElementById('hot-corner');
         let holdTimer = null;
 
-        // Tap hot corner to open settings (testing mode)
+        // Tap hot corner to open settings
         hotCorner.addEventListener('click', () => openSettings());
-        hotCorner.addEventListener('touchend', (e) => {
+        hotCorner.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             openSettings();
         });
-        // Make hot corner visible for debugging
-        hotCorner.style.background = 'rgba(255,0,0,0.3)';
 
         // Settings overlay
         async function openSettings() {
@@ -306,19 +273,11 @@
                     const serverConfig = await cfgResp.json();
                     config.interval = (serverConfig.interval || 300) * 1000;
                     config.fade_duration = serverConfig.fade_duration || 1.0;
-                    config.hot_corner_size = serverConfig.hot_corner_size || 50;
-                    config.hot_corner_position = serverConfig.hot_corner_position || 'top-left';
-
                     // Apply fade duration to CSS
                     document.querySelectorAll('.photo, style').forEach(() => {});
                     const style = document.createElement('style');
                     style.textContent = `.photo { transition: opacity ${config.fade_duration}s ease-in-out; }`;
                     document.head.appendChild(style);
-
-                    // Update hot corner
-                    hotCorner.className = config.hot_corner_position;
-                    hotCorner.style.width = config.hot_corner_size + 'px';
-                    hotCorner.style.height = config.hot_corner_size + 'px';
                 }
 
                 // Load photos list
