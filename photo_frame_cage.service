@@ -8,7 +8,6 @@ Type=simple
 User=robert
 SupplementaryGroups=video input render
 TTYPath=/dev/tty1
-Environment="WLR_LIBINPUT_NO_DEVICES=1"
 Environment="XDG_RUNTIME_DIR=/tmp/frame-runtime"
 Environment="XDG_CONFIG_HOME=/home/robert/digital_photo_frame"
 ExecStartPre=/bin/mkdir -p /tmp/frame-runtime
