@@ -246,6 +246,33 @@
             color: #6d6;
             background: #1a2e1a;
         }
+
+        .schedule-control {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 40px;
+            font-size: 20px;
+        }
+
+        .schedule-control label {
+            color: #888;
+            white-space: nowrap;
+        }
+
+        .schedule-control input[type="time"] {
+            padding: 8px 12px;
+            font-size: 18px;
+            background: #333;
+            color: #fff;
+            border: 2px solid #555;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .schedule-control span.sep {
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -278,6 +305,12 @@
             <span class="brightness-value" id="brightness-value">100%</span>
             <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
         </div>
+        <div class="schedule-control">
+            <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
+            <input type="time" id="schedule-off" value="22:00" onchange="saveSchedule()">
+            <span class="sep">-</span>
+            <input type="time" id="schedule-on" value="07:00" onchange="saveSchedule()">
+        </div>
         <div class="settings-buttons">
             <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
             <button class="settings-btn" onclick="doReboot()">Reboot</button>
@@ -300,6 +333,7 @@
         let currentImage = null;
         let previousImage = null;
         let intervalId = null;
+        let photoHistory = [];  // stack of previously shown indices
 
         // Setup hot corner - 3 second hold to open settings
         const hotCorner = document.getElementById('hot-corner');
@@ -427,6 +461,7 @@
             document.getElementById('brightness-slider').value = currentBrightness;
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
             updateAutoBrightnessUI();
+            loadSchedule();
 
             try {
                 const resp = await fetch('/sysinfo');
@@ -454,6 +489,47 @@
                 await fetch('/shutdown', {method: 'POST'});
                 document.getElementById('settings-overlay').innerHTML =
                     '<h1 style="color:#f66">Shutting down...</h1>';
+            }
+        }
+
+        // Energy save schedule
+        async function loadSchedule() {
+            try {
+                const resp = await fetch('/schedule');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById('schedule-off').value = data.off_time || '22:00';
+                    document.getElementById('schedule-on').value = data.on_time || '07:00';
+                    const btn = document.getElementById('schedule-btn');
+                    if (data.enabled) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load schedule:', e);
+            }
+        }
+
+        function toggleSchedule() {
+            const btn = document.getElementById('schedule-btn');
+            btn.classList.toggle('active');
+            saveSchedule();
+        }
+
+        async function saveSchedule() {
+            const enabled = document.getElementById('schedule-btn').classList.contains('active');
+            const off_time = document.getElementById('schedule-off').value;
+            const on_time = document.getElementById('schedule-on').value;
+            try {
+                await fetch('/schedule', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled, off_time, on_time }),
+                });
+            } catch (e) {
+                console.error('Failed to save schedule:', e);
             }
         }
 
@@ -521,61 +597,53 @@
             });
         }
 
-        async function showNextPhoto() {
-            if (photos.length === 0) return;
-
-            const photoPath = photos[currentIndex];
+        async function showPhoto(photoPath) {
             const slideshow = document.getElementById('slideshow');
-
             try {
-                // Preload next image
-                const img = await preloadImage(photoPath);
-
-                // Create new image element
+                await preloadImage(photoPath);
                 const newImage = document.createElement('img');
                 newImage.src = photoPath;
                 newImage.className = 'photo';
-                
-                // Add to DOM
                 slideshow.appendChild(newImage);
-
-                // Wait a bit for DOM to settle
                 await new Promise(resolve => setTimeout(resolve, 50));
-
-                // Activate new image
                 newImage.classList.add('active');
-
-                // Deactivate previous image
                 if (currentImage) {
                     currentImage.classList.remove('active');
                     currentImage.classList.add('previous');
                 }
-
-                // Clean up old previous image
-                if (previousImage) {
-                    previousImage.remove();
-                }
-
-                // Update references
+                if (previousImage) previousImage.remove();
                 previousImage = currentImage;
                 currentImage = newImage;
+                return true;
+            } catch (error) {
+                console.error('Error loading photo:', photoPath, error);
+                return false;
+            }
+        }
 
-                // Move to next photo
+        async function showNextPhoto() {
+            if (photos.length === 0) return;
+            photoHistory.push(currentIndex);
+            if (photoHistory.length > 50) photoHistory.shift();
+            const photoPath = photos[currentIndex];
+            if (await showPhoto(photoPath)) {
                 currentIndex = (currentIndex + 1) % photos.length;
-
-                // If we've cycled through all photos, reshuffle using Fisher-Yates
                 if (currentIndex === 0) {
                     for (let i = photos.length - 1; i > 0; i--) {
                         const j = Math.floor(Math.random() * (i + 1));
                         [photos[i], photos[j]] = [photos[j], photos[i]];
                     }
                 }
-
-            } catch (error) {
-                console.error('Error loading photo:', photoPath, error);
-                // Skip to next photo
+            } else {
                 currentIndex = (currentIndex + 1) % photos.length;
             }
+        }
+
+        async function showPrevPhoto() {
+            if (photoHistory.length === 0) return;
+            const prevIndex = photoHistory.pop();
+            await showPhoto(photos[prevIndex]);
+            currentIndex = prevIndex;
         }
 
         function startSlideshow() {
@@ -592,10 +660,12 @@
                 hotCorner.click();
             } else if (e.key === ' ' || e.key === 'ArrowRight') {
                 showNextPhoto();
+            } else if (e.key === 'ArrowLeft') {
+                showPrevPhoto();
             }
         });
 
-        // Handle touch events for manual navigation
+        // Handle touch events for navigation
         let touchStartX = 0;
         document.addEventListener('touchstart', (e) => {
             touchStartX = e.touches[0].clientX;
@@ -605,9 +675,12 @@
             const touchEndX = e.changedTouches[0].clientX;
             const diff = touchStartX - touchEndX;
 
-            if (Math.abs(diff) > 50) {
-                // Swipe detected
+            if (diff > 50) {
+                // Swipe left = next photo
                 showNextPhoto();
+            } else if (diff < -50) {
+                // Swipe right = previous photo
+                showPrevPhoto();
             }
         });
 

@@ -18,9 +18,176 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class SysinfoCache:
+    """Background cache for system info to avoid slow shell calls on each request."""
+
+    def __init__(self, photos_dir):
+        self.photos_dir = Path(photos_dir)
+        self.data = {}
+        self._update()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _loop(self):
+        while True:
+            time.sleep(30)
+            self._update()
+
+    def _update(self):
+        import socket
+        info = {'hostname': socket.gethostname(), 'ips': [], 'tailscale_ip': ''}
+        try:
+            result = subprocess.run(
+                ['hostname', '-I'], capture_output=True, text=True, timeout=5)
+            info['ips'] = result.stdout.strip().split()
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ['tailscale', 'ip', '-4'], capture_output=True, text=True, timeout=5)
+            info['tailscale_ip'] = result.stdout.strip()
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
+            info['wifi_ssid'] = result.stdout.strip()
+        except Exception:
+            info['wifi_ssid'] = ''
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                info['cpu_temp'] = round(int(f.read().strip()) / 1000, 1)
+        except Exception:
+            info['cpu_temp'] = None
+        try:
+            result = subprocess.run(
+                ['df', '-h', '/'], capture_output=True, text=True, timeout=5)
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                info['disk'] = f"{parts[2]}/{parts[1]} ({parts[4]})"
+        except Exception:
+            info['disk'] = ''
+        photo_count = len(list(self.photos_dir.glob('*.jpg'))) if self.photos_dir.exists() else 0
+        info['photo_count'] = photo_count
+        self.data = info
+
+    def get(self):
+        return self.data
+
+
+class EnergySaveManager:
+    """Manages display on/off schedule for energy saving."""
+
+    SCHEDULE_FILE = '/tmp/frame-schedule.json'
+
+    def __init__(self):
+        self.enabled = False
+        self.off_time = '22:00'
+        self.on_time = '07:00'
+        self.display_off = False
+        self._load()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _load(self):
+        try:
+            with open(self.SCHEDULE_FILE) as f:
+                data = json.load(f)
+                self.enabled = data.get('enabled', False)
+                self.off_time = data.get('off_time', '22:00')
+                self.on_time = data.get('on_time', '07:00')
+        except Exception:
+            pass
+
+    def _save(self):
+        try:
+            with open(self.SCHEDULE_FILE, 'w') as f:
+                json.dump({
+                    'enabled': self.enabled,
+                    'off_time': self.off_time,
+                    'on_time': self.on_time,
+                }, f)
+        except Exception as e:
+            logger.error(f"Error saving schedule: {e}")
+
+    def get_schedule(self):
+        return {
+            'enabled': self.enabled,
+            'off_time': self.off_time,
+            'on_time': self.on_time,
+            'display_off': self.display_off,
+        }
+
+    def update_schedule(self, data):
+        self.enabled = data.get('enabled', self.enabled)
+        self.off_time = data.get('off_time', self.off_time)
+        self.on_time = data.get('on_time', self.on_time)
+        self._save()
+        # Apply immediately
+        self._check()
+
+    def _in_off_period(self):
+        from datetime import datetime
+        now = datetime.now()
+        now_mins = now.hour * 60 + now.minute
+        off_parts = self.off_time.split(':')
+        on_parts = self.on_time.split(':')
+        off_mins = int(off_parts[0]) * 60 + int(off_parts[1])
+        on_mins = int(on_parts[0]) * 60 + int(on_parts[1])
+
+        if off_mins < on_mins:
+            # e.g. 22:00 - 07:00 (overnight)
+            return now_mins >= off_mins or now_mins < on_mins
+        else:
+            # e.g. 01:00 - 06:00 (same day)
+            return off_mins <= now_mins < on_mins
+
+    def _set_display(self, on):
+        try:
+            if on and self.display_off:
+                # Turn display on
+                subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--on'],
+                             capture_output=True, timeout=5,
+                             env={**os.environ, 'WAYLAND_DISPLAY': 'wayland-0',
+                                  'XDG_RUNTIME_DIR': '/tmp/frame-runtime'})
+                self.display_off = False
+                logger.info("Display turned ON (schedule)")
+            elif not on and not self.display_off:
+                # Turn display off
+                subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--off'],
+                             capture_output=True, timeout=5,
+                             env={**os.environ, 'WAYLAND_DISPLAY': 'wayland-0',
+                                  'XDG_RUNTIME_DIR': '/tmp/frame-runtime'})
+                self.display_off = True
+                logger.info("Display turned OFF (energy save)")
+        except Exception as e:
+            logger.error(f"Display control error: {e}")
+
+    def _check(self):
+        if not self.enabled:
+            if self.display_off:
+                self._set_display(True)
+            return
+        if self._in_off_period():
+            self._set_display(False)
+        else:
+            self._set_display(True)
+
+    def _loop(self):
+        while True:
+            self._check()
+            time.sleep(60)
+
+
+# Global singletons, initialized in main()
+_sysinfo_cache = None
+_energy_save = None
+
+
 class PhotoFrameHandler(SimpleHTTPRequestHandler):
     """Custom HTTP handler for photo frame."""
-    
+
     def __init__(self, *args, photos_dir='/srv/frame/photos', viewer_dir='/srv/frame/viewer', slideshow_config=None, **kwargs):
         self.photos_dir = Path(photos_dir)
         self.viewer_dir = Path(viewer_dir)
@@ -45,6 +212,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_sysinfo()
         elif path == '/brightness':
             self.serve_brightness()
+        elif path == '/schedule':
+            self.serve_schedule()
         elif path.startswith('/photos/'):
             # Serve photo file
             photo_name = path[8:]  # Remove '/photos/' prefix
@@ -58,6 +227,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_shutdown()
         elif self.path == '/reboot':
             self.handle_reboot()
+        elif self.path == '/schedule':
+            self.handle_save_schedule()
         else:
             self.send_error(404, "Not found")
     
@@ -185,45 +356,9 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.send_error(500, str(e))
     
     def serve_sysinfo(self):
-        """Serve system info as JSON."""
-        import socket
-        info = {'hostname': socket.gethostname(), 'ips': [], 'tailscale_ip': ''}
-        try:
-            result = subprocess.run(
-                ['hostname', '-I'], capture_output=True, text=True, timeout=5)
-            info['ips'] = result.stdout.strip().split()
-        except Exception:
-            pass
-        try:
-            result = subprocess.run(
-                ['tailscale', 'ip', '-4'], capture_output=True, text=True, timeout=5)
-            info['tailscale_ip'] = result.stdout.strip()
-        except Exception:
-            pass
-        try:
-            result = subprocess.run(
-                ['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
-            info['wifi_ssid'] = result.stdout.strip()
-        except Exception:
-            info['wifi_ssid'] = ''
-        try:
-            with open('/sys/class/thermal/thermal_zone0/temp') as f:
-                info['cpu_temp'] = round(int(f.read().strip()) / 1000, 1)
-        except Exception:
-            info['cpu_temp'] = None
-        try:
-            result = subprocess.run(
-                ['df', '-h', '/'], capture_output=True, text=True, timeout=5)
-            lines = result.stdout.strip().split('\n')
-            if len(lines) > 1:
-                parts = lines[1].split()
-                info['disk'] = f"{parts[2]}/{parts[1]} ({parts[4]})"
-        except Exception:
-            info['disk'] = ''
-
-        photo_count = len(list(self.photos_dir.glob('*.jpg'))) if self.photos_dir.exists() else 0
-        info['photo_count'] = photo_count
-
+        """Serve cached system info as JSON (updated every 30s in background)."""
+        global _sysinfo_cache
+        info = _sysinfo_cache.get() if _sysinfo_cache else {}
         content = json.dumps(info).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
@@ -253,6 +388,35 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', len(content))
         self.end_headers()
         self.wfile.write(content)
+
+    def serve_schedule(self):
+        """Serve energy save schedule."""
+        global _energy_save
+        data = _energy_save.get_schedule() if _energy_save else {}
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_save_schedule(self):
+        """Save energy save schedule."""
+        global _energy_save
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            if _energy_save:
+                _energy_save.update_schedule(data)
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True}).encode())
+        except Exception as e:
+            logger.error(f"Error saving schedule: {e}")
+            self.send_error(400, str(e))
 
     def handle_reboot(self):
         """Handle reboot request."""
@@ -306,6 +470,12 @@ def main():
         Path(photos_dir).mkdir(parents=True, exist_ok=True)
         
         slideshow_config = config.get('slideshow', {})
+
+        # Start background services
+        global _sysinfo_cache, _energy_save
+        _sysinfo_cache = SysinfoCache(photos_dir)
+        _energy_save = EnergySaveManager()
+
         handler = create_handler(photos_dir, viewer_dir, slideshow_config)
         HTTPServer.allow_reuse_address = True
         server = HTTPServer(('0.0.0.0', port), handler)
