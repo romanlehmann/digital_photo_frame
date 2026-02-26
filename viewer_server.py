@@ -307,6 +307,7 @@ def main():
         
         slideshow_config = config.get('slideshow', {})
         handler = create_handler(photos_dir, viewer_dir, slideshow_config)
+        HTTPServer.allow_reuse_address = True
         server = HTTPServer(('0.0.0.0', port), handler)
         
         logger.info(f"Starting photo frame server on port {port}")
