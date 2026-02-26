@@ -115,12 +115,115 @@
             z-index: 999;
             display: none;
         }
+
+        #settings-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.92);
+            z-index: 2000;
+            color: #eee;
+            font-family: 'Courier New', monospace;
+            padding: 40px;
+        }
+
+        #settings-overlay.visible {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #settings-overlay h1 {
+            font-size: 28px;
+            margin-bottom: 30px;
+            color: #fff;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: auto auto;
+            gap: 12px 24px;
+            font-size: 20px;
+            margin-bottom: 40px;
+        }
+
+        .info-label {
+            color: #888;
+            text-align: right;
+        }
+
+        .info-value {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .settings-buttons {
+            display: flex;
+            gap: 20px;
+        }
+
+        .settings-btn {
+            padding: 16px 32px;
+            font-size: 20px;
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: #222;
+            color: #fff;
+            min-width: 160px;
+        }
+
+        .settings-btn:active {
+            background: #444;
+        }
+
+        .settings-btn.danger {
+            border-color: #c33;
+            color: #f66;
+        }
+
+        .settings-btn.danger:active {
+            background: #411;
+        }
+
+        .settings-btn.close-btn {
+            border-color: #36a;
+            color: #6af;
+        }
     </style>
 </head>
 <body>
     <div id="loading">Loading photos...</div>
     <div id="error"></div>
     <div id="slideshow"></div>
+
+    <div id="settings-overlay">
+        <h1>Settings</h1>
+        <div class="info-grid">
+            <span class="info-label">Hostname:</span>
+            <span class="info-value" id="info-hostname">--</span>
+            <span class="info-label">IP:</span>
+            <span class="info-value" id="info-ip">--</span>
+            <span class="info-label">Tailscale:</span>
+            <span class="info-value" id="info-tailscale">--</span>
+            <span class="info-label">WiFi:</span>
+            <span class="info-value" id="info-wifi">--</span>
+            <span class="info-label">CPU Temp:</span>
+            <span class="info-value" id="info-temp">--</span>
+            <span class="info-label">Disk:</span>
+            <span class="info-value" id="info-disk">--</span>
+            <span class="info-label">Photos:</span>
+            <span class="info-value" id="info-photos">--</span>
+        </div>
+        <div class="settings-buttons">
+            <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
+            <button class="settings-btn" onclick="doReboot()">Reboot</button>
+            <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
+        </div>
+    </div>
     <div id="hot-corner" class="top-left"></div>
 
     <script>
@@ -140,21 +243,67 @@
 
         // Setup hot corner (updated by init() after config loads)
         const hotCorner = document.getElementById('hot-corner');
+        let holdTimer = null;
 
-        // Hot corner click handler
-        hotCorner.addEventListener('click', async () => {
-            if (confirm('Shutdown Raspberry Pi?')) {
-                try {
-                    // Call shutdown endpoint
-                    await fetch('/shutdown', {method: 'POST'});
-                    document.getElementById('loading').textContent = 'Shutting down...';
-                } catch (e) {
-                    console.error('Shutdown failed:', e);
-                    // Fallback: try system command via local script
-                    window.location.href = 'shutdown.html';
-                }
+        // Long-press hot corner (5 seconds) opens settings
+        function startHold(e) {
+            e.preventDefault();
+            holdTimer = setTimeout(() => openSettings(), 5000);
+        }
+        function cancelHold() {
+            if (holdTimer) clearTimeout(holdTimer);
+            holdTimer = null;
+        }
+        hotCorner.addEventListener('mousedown', startHold);
+        hotCorner.addEventListener('mouseup', cancelHold);
+        hotCorner.addEventListener('mouseleave', cancelHold);
+        hotCorner.addEventListener('touchstart', startHold);
+        hotCorner.addEventListener('touchend', cancelHold);
+        hotCorner.addEventListener('touchcancel', cancelHold);
+
+        // Settings overlay
+        async function openSettings() {
+            const overlay = document.getElementById('settings-overlay');
+            overlay.classList.add('visible');
+            // Pause slideshow
+            if (intervalId) clearInterval(intervalId);
+
+            try {
+                const resp = await fetch('/sysinfo');
+                const info = await resp.json();
+                document.getElementById('info-hostname').textContent = info.hostname || '--';
+                document.getElementById('info-ip').textContent = (info.ips || []).join(', ') || '--';
+                document.getElementById('info-tailscale').textContent = info.tailscale_ip || '--';
+                document.getElementById('info-wifi').textContent = info.wifi_ssid || 'Not connected';
+                document.getElementById('info-temp').textContent = info.cpu_temp != null ? info.cpu_temp + ' C' : '--';
+                document.getElementById('info-disk').textContent = info.disk || '--';
+                document.getElementById('info-photos').textContent = info.photo_count || '0';
+            } catch (e) {
+                console.error('Failed to load sysinfo:', e);
             }
-        });
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-overlay').classList.remove('visible');
+            // Resume slideshow
+            intervalId = setInterval(showNextPhoto, config.interval);
+        }
+
+        async function doShutdown() {
+            if (confirm('Shutdown Raspberry Pi?')) {
+                await fetch('/shutdown', {method: 'POST'});
+                document.getElementById('settings-overlay').innerHTML =
+                    '<h1 style="color:#f66">Shutting down...</h1>';
+            }
+        }
+
+        async function doReboot() {
+            if (confirm('Reboot Raspberry Pi?')) {
+                await fetch('/reboot', {method: 'POST'});
+                document.getElementById('settings-overlay').innerHTML =
+                    '<h1 style="color:#6af">Rebooting...</h1>';
+            }
+        }
 
         // Load config and photos, then start
         async function init() {

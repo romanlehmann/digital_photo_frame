@@ -41,6 +41,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         elif path == '/list':
             # Serve photos list as JSON
             self.serve_photos_json()
+        elif path == '/sysinfo':
+            self.serve_sysinfo()
         elif path.startswith('/photos/'):
             # Serve photo file
             photo_name = path[8:]  # Remove '/photos/' prefix
@@ -52,6 +54,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         """Handle POST requests."""
         if self.path == '/shutdown':
             self.handle_shutdown()
+        elif self.path == '/reboot':
+            self.handle_reboot()
         else:
             self.send_error(404, "Not found")
     
@@ -178,6 +182,74 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.error(f"Error handling shutdown: {e}")
             self.send_error(500, str(e))
     
+    def serve_sysinfo(self):
+        """Serve system info as JSON."""
+        import socket
+        info = {'hostname': socket.gethostname(), 'ips': [], 'tailscale_ip': ''}
+        try:
+            result = subprocess.run(
+                ['hostname', '-I'], capture_output=True, text=True, timeout=5)
+            info['ips'] = result.stdout.strip().split()
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ['tailscale', 'ip', '-4'], capture_output=True, text=True, timeout=5)
+            info['tailscale_ip'] = result.stdout.strip()
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
+            info['wifi_ssid'] = result.stdout.strip()
+        except Exception:
+            info['wifi_ssid'] = ''
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                info['cpu_temp'] = round(int(f.read().strip()) / 1000, 1)
+        except Exception:
+            info['cpu_temp'] = None
+        try:
+            result = subprocess.run(
+                ['df', '-h', '/'], capture_output=True, text=True, timeout=5)
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                parts = lines[1].split()
+                info['disk'] = f"{parts[2]}/{parts[1]} ({parts[4]})"
+        except Exception:
+            info['disk'] = ''
+
+        photo_count = len(list(self.photos_dir.glob('*.jpg'))) if self.photos_dir.exists() else 0
+        info['photo_count'] = photo_count
+
+        content = json.dumps(info).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_reboot(self):
+        """Handle reboot request."""
+        logger.warning("Reboot requested via HTTP")
+        try:
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Reboot initiated')
+
+            def delayed_reboot():
+                time.sleep(2)
+                subprocess.run(['sudo', 'reboot'])
+
+            thread = threading.Thread(target=delayed_reboot)
+            thread.daemon = True
+            thread.start()
+        except Exception as e:
+            logger.error(f"Error handling reboot: {e}")
+            self.send_error(500, str(e))
+
     def log_message(self, format, *args):
         """Override to use Python logging."""
         logger.info(f"{self.address_string()} - {format % args}")

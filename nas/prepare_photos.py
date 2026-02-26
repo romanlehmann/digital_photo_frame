@@ -289,6 +289,18 @@ class PhotoDatabase:
                 now,
             ))
 
+        # Remove entries no longer in the album (deleted photos, videos, etc.)
+        item_ids = {item['id'] for item in items}
+        cursor.execute('SELECT item_id FROM photos')
+        db_ids = {row['item_id'] for row in cursor.fetchall()}
+        stale_ids = db_ids - item_ids
+        if stale_ids:
+            cursor.executemany(
+                'DELETE FROM photos WHERE item_id = ?',
+                [(i,) for i in stale_ids],
+            )
+            logger.info(f"Removed {len(stale_ids)} stale entries from database")
+
         self.conn.commit()
         logger.info(f"Updated {len(items)} items in database")
 
