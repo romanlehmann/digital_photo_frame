@@ -77,15 +77,22 @@ class SysinfoCache:
 
 
 class EnergySaveManager:
-    """Manages sleep schedule — viewer polls /schedule to show black screen."""
+    """Manages sleep schedule with DPMS display control."""
 
     SCHEDULE_FILE = '/tmp/frame-schedule.json'
+    DPMS_ENV = {
+        'WAYLAND_DISPLAY': 'wayland-0',
+        'XDG_RUNTIME_DIR': '/tmp/frame-runtime',
+    }
 
     def __init__(self):
         self.enabled = False
         self.off_time = '22:00'
         self.on_time = '07:00'
+        self.display_sleeping = False
         self._load()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
     def _load(self):
         try:
@@ -126,6 +133,36 @@ class EnergySaveManager:
         self.off_time = data.get('off_time', self.off_time)
         self.on_time = data.get('on_time', self.on_time)
         self._save()
+        self._check()
+
+    def wake_display(self):
+        """Wake display immediately (called when user taps sleep overlay)."""
+        if self.display_sleeping:
+            self._dpms(True)
+
+    def _dpms(self, on):
+        """Control display via DPMS (backlight on/off, no blue screen)."""
+        try:
+            env = {**os.environ, **self.DPMS_ENV}
+            flag = '--on' if on else '--off'
+            subprocess.run(['wlopm', flag, 'HDMI-A-1'],
+                         capture_output=True, timeout=5, env=env)
+            self.display_sleeping = not on
+            logger.info(f"Display DPMS {'ON' if on else 'OFF'}")
+        except Exception as e:
+            logger.error(f"DPMS control error: {e}")
+
+    def _check(self):
+        should_sleep = self.is_sleeping()
+        if should_sleep and not self.display_sleeping:
+            self._dpms(False)
+        elif not should_sleep and self.display_sleeping:
+            self._dpms(True)
+
+    def _loop(self):
+        while True:
+            self._check()
+            time.sleep(30)
 
     def _in_off_period(self):
         from datetime import datetime
@@ -196,6 +233,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_reboot()
         elif self.path == '/schedule':
             self.handle_save_schedule()
+        elif self.path == '/wake':
+            self.handle_wake()
         elif self.path == '/orientation':
             self.handle_save_orientation()
         else:
@@ -369,6 +408,16 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', len(content))
         self.end_headers()
         self.wfile.write(content)
+
+    def handle_wake(self):
+        """Wake display from DPMS sleep."""
+        global _energy_save
+        if _energy_save:
+            _energy_save.wake_display()
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'ok': True}).encode())
 
     def handle_save_schedule(self):
         """Save energy save schedule."""

@@ -401,7 +401,7 @@
         </div>
         <div class="brightness-control">
             <label>Brightness</label>
-            <input type="range" id="brightness-slider" min="10" max="100" value="100"
+            <input type="range" id="brightness-slider" min="0" max="100" value="100"
                    oninput="setBrightness(this.value)">
             <span class="brightness-value" id="brightness-value">100%</span>
             <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
@@ -904,12 +904,18 @@
         const sleepOverlay = document.getElementById('sleep-overlay');
         let isSleeping = false;
 
-        // Tap black screen to open settings (to change schedule / wake up)
+        // Tap black screen to wake display and open settings
+        async function wakeAndOpenSettings() {
+            await fetch('/wake', { method: 'POST' }).catch(() => {});
+            isSleeping = false;
+            sleepOverlay.classList.remove('active');
+            openSettings();
+        }
         sleepOverlay.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            openSettings();
+            wakeAndOpenSettings();
         });
-        sleepOverlay.addEventListener('click', () => openSettings());
+        sleepOverlay.addEventListener('click', () => wakeAndOpenSettings());
 
         async function checkSleep() {
             try {
