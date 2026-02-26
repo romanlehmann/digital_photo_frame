@@ -144,20 +144,27 @@ class EnergySaveManager:
         try:
             if sleep and not self.sleeping:
                 self.sleeping = True
-                # Blank console, then stop display service
-                subprocess.run(['sudo', 'sh', '-c',
-                    'setterm --blank force > /dev/tty1'],
-                    capture_output=True, timeout=5)
+                # Stop display service first
                 subprocess.run(['sudo', 'systemctl', 'stop', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
+                # Blank framebuffer to black (works without terminal type)
+                subprocess.run(['sudo', 'sh', '-c',
+                    'echo 1 > /sys/class/graphics/fb0/blank'],
+                    capture_output=True, timeout=5)
+                # Clear all VTs to prevent text showing through
+                for tty in range(1, 4):
+                    subprocess.run(['sudo', 'sh', '-c',
+                        f'echo -ne "\\033[2J\\033[H" > /dev/tty{tty}'],
+                        capture_output=True, timeout=5)
                 logger.info("Sleep: stopped display service")
                 # Start touch-to-wake listener
                 self._wake_event.clear()
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
+                # Unblank framebuffer
                 subprocess.run(['sudo', 'sh', '-c',
-                    'setterm --blank poke > /dev/tty1'],
+                    'echo 0 > /sys/class/graphics/fb0/blank'],
                     capture_output=True, timeout=5)
                 subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
