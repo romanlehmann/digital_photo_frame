@@ -77,19 +77,21 @@ class SysinfoCache:
 
 
 class EnergySaveManager:
-    """Manages sleep schedule with DPMS display control."""
+    """Manages sleep schedule by stopping/starting the display service.
+
+    During sleep: stops cage+Chromium (frees RAM, screen shows black console).
+    On wake: restarts the display service.
+    Touch-to-wake: reads raw input events during sleep to detect touch/tap.
+    """
 
     SCHEDULE_FILE = '/tmp/frame-schedule.json'
-    DPMS_ENV = {
-        'WAYLAND_DISPLAY': 'wayland-0',
-        'XDG_RUNTIME_DIR': '/tmp/frame-runtime',
-    }
 
     def __init__(self):
         self.enabled = False
         self.off_time = '22:00'
         self.on_time = '07:00'
-        self.display_sleeping = False
+        self.sleeping = False
+        self._wake_event = threading.Event()
         self._load()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -116,16 +118,14 @@ class EnergySaveManager:
             logger.error(f"Error saving schedule: {e}")
 
     def is_sleeping(self):
-        if not self.enabled:
-            return False
-        return self._in_off_period()
+        return self.sleeping
 
     def get_schedule(self):
         return {
             'enabled': self.enabled,
             'off_time': self.off_time,
             'on_time': self.on_time,
-            'sleeping': self.is_sleeping(),
+            'sleeping': self.sleeping,
         }
 
     def update_schedule(self, data):
@@ -136,28 +136,84 @@ class EnergySaveManager:
         self._check()
 
     def wake_display(self):
-        """Wake display immediately (called when user taps sleep overlay)."""
-        if self.display_sleeping:
-            self._dpms(True)
+        """Wake display immediately."""
+        if self.sleeping:
+            self._set_sleep(False)
 
-    def _dpms(self, on):
-        """Control display via DPMS (backlight on/off, no blue screen)."""
+    def _set_sleep(self, sleep):
         try:
-            env = {**os.environ, **self.DPMS_ENV}
-            flag = '--on' if on else '--off'
-            subprocess.run(['wlopm', flag, 'HDMI-A-1'],
-                         capture_output=True, timeout=5, env=env)
-            self.display_sleeping = not on
-            logger.info(f"Display DPMS {'ON' if on else 'OFF'}")
+            if sleep and not self.sleeping:
+                self.sleeping = True
+                # Blank console, then stop display service
+                subprocess.run(['sudo', 'sh', '-c',
+                    'setterm --blank force > /dev/tty1'],
+                    capture_output=True, timeout=5)
+                subprocess.run(['sudo', 'systemctl', 'stop', 'photo_frame_cage'],
+                             capture_output=True, timeout=15)
+                logger.info("Sleep: stopped display service")
+                # Start touch-to-wake listener
+                self._wake_event.clear()
+                threading.Thread(target=self._touch_wake_listener, daemon=True).start()
+            elif not sleep and self.sleeping:
+                self._wake_event.set()  # stop touch listener
+                subprocess.run(['sudo', 'sh', '-c',
+                    'setterm --blank poke > /dev/tty1'],
+                    capture_output=True, timeout=5)
+                subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
+                             capture_output=True, timeout=15)
+                self.sleeping = False
+                logger.info("Wake: started display service")
         except Exception as e:
-            logger.error(f"DPMS control error: {e}")
+            logger.error(f"Sleep control error: {e}")
+
+    def _touch_wake_listener(self):
+        """Listen for touch/input events during sleep to trigger wake."""
+        import glob
+        import struct
+        import select
+        # Find input devices
+        devices = glob.glob('/dev/input/event*')
+        fds = []
+        for dev in devices:
+            try:
+                fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+                fds.append(fd)
+            except Exception:
+                pass
+        if not fds:
+            logger.warning("Touch wake: no input devices found")
+            return
+        logger.info(f"Touch wake: listening on {len(fds)} input devices")
+        try:
+            while not self._wake_event.is_set():
+                readable, _, _ = select.select(fds, [], [], 1.0)
+                for fd in readable:
+                    try:
+                        # Read and discard input event data (24 bytes per event on 32-bit)
+                        os.read(fd, 4096)
+                    except Exception:
+                        continue
+                    if self.sleeping:
+                        logger.info("Touch wake: input detected, waking display")
+                        self.wake_display()
+                        return
+        finally:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except Exception:
+                    pass
 
     def _check(self):
-        should_sleep = self.is_sleeping()
-        if should_sleep and not self.display_sleeping:
-            self._dpms(False)
-        elif not should_sleep and self.display_sleeping:
-            self._dpms(True)
+        if not self.enabled:
+            if self.sleeping:
+                self._set_sleep(False)
+            return
+        should_sleep = self._in_off_period()
+        if should_sleep and not self.sleeping:
+            self._set_sleep(True)
+        elif not should_sleep and self.sleeping:
+            self._set_sleep(False)
 
     def _loop(self):
         while True:
@@ -455,7 +511,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.wfile.write(content)
 
     def handle_save_orientation(self):
-        """Save orientation setting to config file."""
+        """Save orientation setting and rotate display via wlr-randr."""
         global _config_path
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
@@ -471,6 +527,20 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             cfg.setdefault('frame', {})['orientation'] = new_orientation
             with open(_config_path, 'w') as f:
                 yaml.dump(cfg, f, default_flow_style=False)
+
+            # Rotate display using wlr-randr (runs inside cage/labwc Wayland session)
+            transform = '90' if new_orientation == 'vertical' else 'normal'
+            try:
+                result = subprocess.run(
+                    ['sudo', '-u', 'robert', 'env',
+                     'WAYLAND_DISPLAY=wayland-0',
+                     'XDG_RUNTIME_DIR=/run/user/1000',
+                     'wlr-randr', '--output', 'HDMI-A-1', '--transform', transform],
+                    capture_output=True, text=True, timeout=10)
+                if result.returncode != 0:
+                    logger.warning(f"wlr-randr failed: {result.stderr}")
+            except Exception as e:
+                logger.warning(f"Display rotation error: {e}")
 
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
