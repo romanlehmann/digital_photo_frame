@@ -597,6 +597,8 @@
             });
         }
 
+        let transitioning = false;
+
         async function showPhoto(photoPath) {
             const slideshow = document.getElementById('slideshow');
             try {
@@ -622,28 +624,38 @@
         }
 
         async function showNextPhoto() {
-            if (photos.length === 0) return;
-            photoHistory.push(currentIndex);
-            if (photoHistory.length > 50) photoHistory.shift();
-            const photoPath = photos[currentIndex];
-            if (await showPhoto(photoPath)) {
-                currentIndex = (currentIndex + 1) % photos.length;
-                if (currentIndex === 0) {
-                    for (let i = photos.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [photos[i], photos[j]] = [photos[j], photos[i]];
+            if (photos.length === 0 || transitioning) return;
+            transitioning = true;
+            try {
+                photoHistory.push(currentIndex);
+                if (photoHistory.length > 50) photoHistory.shift();
+                const photoPath = photos[currentIndex];
+                if (await showPhoto(photoPath)) {
+                    currentIndex = (currentIndex + 1) % photos.length;
+                    if (currentIndex === 0) {
+                        for (let i = photos.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [photos[i], photos[j]] = [photos[j], photos[i]];
+                        }
                     }
+                } else {
+                    currentIndex = (currentIndex + 1) % photos.length;
                 }
-            } else {
-                currentIndex = (currentIndex + 1) % photos.length;
+            } finally {
+                transitioning = false;
             }
         }
 
         async function showPrevPhoto() {
-            if (photoHistory.length === 0) return;
-            const prevIndex = photoHistory.pop();
-            await showPhoto(photos[prevIndex]);
-            currentIndex = prevIndex;
+            if (photoHistory.length === 0 || transitioning) return;
+            transitioning = true;
+            try {
+                const prevIndex = photoHistory.pop();
+                await showPhoto(photos[prevIndex]);
+                currentIndex = prevIndex;
+            } finally {
+                transitioning = false;
+            }
         }
 
         function startSlideshow() {
@@ -666,22 +678,38 @@
         });
 
         // Handle touch events for navigation
-        let touchStartX = 0;
+        let touchStartX = null;
+        let touchStartY = null;
+        let touchStartTime = 0;
+
         document.addEventListener('touchstart', (e) => {
-            touchStartX = e.touches[0].clientX;
+            if (e.touches.length === 1) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchStartTime = Date.now();
+            }
         });
 
         document.addEventListener('touchend', (e) => {
-            const touchEndX = e.changedTouches[0].clientX;
-            const diff = touchStartX - touchEndX;
+            if (touchStartX === null) return;
+            const elapsed = Date.now() - touchStartTime;
+            // Ignore if too slow (>1.5s) — probably not a swipe
+            if (elapsed > 1500) { touchStartX = null; return; }
 
-            if (diff > 50) {
-                // Swipe left = next photo
-                showNextPhoto();
-            } else if (diff < -50) {
-                // Swipe right = previous photo
-                showPrevPhoto();
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const diffX = touchStartX - touchEndX;
+            const diffY = Math.abs(touchStartY - touchEndY);
+
+            // Only register horizontal swipes (X movement > Y movement)
+            if (Math.abs(diffX) > 80 && Math.abs(diffX) > diffY) {
+                if (diffX > 0) {
+                    showNextPhoto();
+                } else {
+                    showPrevPhoto();
+                }
             }
+            touchStartX = null;
         });
 
         // Prevent screen sleep
