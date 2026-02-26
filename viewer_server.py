@@ -183,6 +183,7 @@ class EnergySaveManager:
 # Global singletons, initialized in main()
 _sysinfo_cache = None
 _energy_save = None
+_config_path = None
 
 
 class PhotoFrameHandler(SimpleHTTPRequestHandler):
@@ -214,6 +215,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_brightness()
         elif path == '/schedule':
             self.serve_schedule()
+        elif path == '/orientation':
+            self.serve_orientation()
         elif path.startswith('/photos/'):
             # Serve photo file
             photo_name = path[8:]  # Remove '/photos/' prefix
@@ -229,6 +232,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_reboot()
         elif self.path == '/schedule':
             self.handle_save_schedule()
+        elif self.path == '/orientation':
+            self.handle_save_orientation()
         else:
             self.send_error(404, "Not found")
     
@@ -418,6 +423,50 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.error(f"Error saving schedule: {e}")
             self.send_error(400, str(e))
 
+    def serve_orientation(self):
+        """Serve current orientation setting."""
+        global _config_path
+        orientation = 'horizontal'
+        try:
+            import yaml
+            with open(_config_path) as f:
+                cfg = yaml.safe_load(f)
+            orientation = cfg.get('frame', {}).get('orientation', 'horizontal')
+        except Exception:
+            pass
+        content = json.dumps({'orientation': orientation}).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_save_orientation(self):
+        """Save orientation setting to config file."""
+        global _config_path
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            import yaml
+            data = json.loads(body)
+            new_orientation = data.get('orientation', 'horizontal')
+            if new_orientation not in ('horizontal', 'vertical'):
+                raise ValueError('Invalid orientation')
+
+            with open(_config_path) as f:
+                cfg = yaml.safe_load(f)
+            cfg.setdefault('frame', {})['orientation'] = new_orientation
+            with open(_config_path, 'w') as f:
+                yaml.dump(cfg, f, default_flow_style=False)
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True}).encode())
+        except Exception as e:
+            logger.error(f"Error saving orientation: {e}")
+            self.send_error(400, str(e))
+
     def handle_reboot(self):
         """Handle reboot request."""
         logger.warning("Reboot requested via HTTP")
@@ -472,7 +521,8 @@ def main():
         slideshow_config = config.get('slideshow', {})
 
         # Start background services
-        global _sysinfo_cache, _energy_save
+        global _sysinfo_cache, _energy_save, _config_path
+        _config_path = config_path
         _sysinfo_cache = SysinfoCache(photos_dir)
         _energy_save = EnergySaveManager()
 

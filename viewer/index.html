@@ -273,6 +273,33 @@
         .schedule-control span.sep {
             color: #666;
         }
+
+        .orientation-control {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .orientation-control label {
+            color: #888;
+        }
+
+        .orient-btn {
+            padding: 8px 20px;
+            font-size: 18px;
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: #222;
+            color: #888;
+        }
+
+        .orient-btn.active {
+            border-color: #36a;
+            color: #6af;
+            background: #1a2a3a;
+        }
     </style>
 </head>
 <body>
@@ -297,6 +324,11 @@
             <span class="info-value" id="info-disk">--</span>
             <span class="info-label">Photos:</span>
             <span class="info-value" id="info-photos">--</span>
+        </div>
+        <div class="orientation-control">
+            <label>Orientation</label>
+            <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
+            <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
         </div>
         <div class="brightness-control">
             <label>Brightness</label>
@@ -461,6 +493,7 @@
             document.getElementById('brightness-slider').value = currentBrightness;
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
             updateAutoBrightnessUI();
+            loadOrientation();
             loadSchedule();
 
             try {
@@ -489,6 +522,37 @@
                 await fetch('/shutdown', {method: 'POST'});
                 document.getElementById('settings-overlay').innerHTML =
                     '<h1 style="color:#f66">Shutting down...</h1>';
+            }
+        }
+
+        // Orientation control
+        async function loadOrientation() {
+            try {
+                const resp = await fetch('/orientation');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    updateOrientationUI(data.orientation);
+                }
+            } catch (e) {
+                console.error('Failed to load orientation:', e);
+            }
+        }
+
+        function updateOrientationUI(orientation) {
+            document.getElementById('orient-h').classList.toggle('active', orientation === 'horizontal');
+            document.getElementById('orient-v').classList.toggle('active', orientation === 'vertical');
+        }
+
+        async function setOrientation(orientation) {
+            updateOrientationUI(orientation);
+            try {
+                await fetch('/orientation', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ orientation }),
+                });
+            } catch (e) {
+                console.error('Failed to save orientation:', e);
             }
         }
 
@@ -702,7 +766,7 @@
             const diffY = Math.abs(touchStartY - touchEndY);
 
             // Only register horizontal swipes (X movement > Y movement)
-            if (Math.abs(diffX) > 80 && Math.abs(diffX) > diffY) {
+            if (Math.abs(diffX) > 50 && Math.abs(diffX) > diffY) {
                 if (diffX > 0) {
                     showNextPhoto();
                 } else {

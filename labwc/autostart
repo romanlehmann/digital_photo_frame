@@ -8,5 +8,6 @@
     --disable-features=TranslateUI \
     --disable-component-update \
     --disable-pinch \
+    --enable-features=VirtualKeyboard \
     --ozone-platform=wayland \
     http://localhost:8080/ &
