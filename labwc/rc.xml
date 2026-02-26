@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<labwc_config>
+  <cursor>
+    <hide>yes</hide>
+    <hideTimeout>1000</hideTimeout>
+  </cursor>
+  <keyboard>
+    <default />
+  </keyboard>
+</labwc_config>

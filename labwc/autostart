@@ -1,0 +1,12 @@
+/usr/lib/chromium/chromium \
+    --kiosk \
+    --noerrdialogs \
+    --disable-infobars \
+    --no-first-run \
+    --check-for-update-interval=31536000 \
+    --disable-session-crashed-bubble \
+    --disable-features=TranslateUI \
+    --disable-component-update \
+    --disable-pinch \
+    --ozone-platform=wayland \
+    http://localhost:8080/ &
