@@ -260,18 +260,57 @@
             white-space: nowrap;
         }
 
-        .schedule-control input[type="time"] {
-            padding: 8px 12px;
-            font-size: 18px;
+        .time-picker {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .time-picker .time-display {
+            font-size: 22px;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            background: #333;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 2px solid #555;
+            min-width: 70px;
+            text-align: center;
+        }
+
+        .time-picker .time-btn {
+            width: 36px;
+            height: 36px;
+            border: 2px solid #555;
+            border-radius: 6px;
             background: #333;
             color: #fff;
-            border: 2px solid #555;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .time-picker .time-btn:active {
+            background: #555;
         }
 
         .schedule-control span.sep {
             color: #666;
+            font-size: 22px;
+        }
+
+        .save-msg {
+            color: #4a4;
+            font-size: 16px;
+            margin-left: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .save-msg.show {
+            opacity: 1;
         }
 
         .orientation-control {
@@ -329,6 +368,7 @@
             <label>Orientation</label>
             <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
             <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
+            <span class="save-msg" id="orient-saved">Saved</span>
         </div>
         <div class="brightness-control">
             <label>Brightness</label>
@@ -339,9 +379,17 @@
         </div>
         <div class="schedule-control">
             <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
-            <input type="time" id="schedule-off" value="22:00" onchange="saveSchedule()">
+            <div class="time-picker">
+                <button class="time-btn" onclick="adjustTime('off', -1)">-</button>
+                <span class="time-display" id="schedule-off">22:00</span>
+                <button class="time-btn" onclick="adjustTime('off', 1)">+</button>
+            </div>
             <span class="sep">-</span>
-            <input type="time" id="schedule-on" value="07:00" onchange="saveSchedule()">
+            <div class="time-picker">
+                <button class="time-btn" onclick="adjustTime('on', -1)">-</button>
+                <span class="time-display" id="schedule-on">07:00</span>
+                <button class="time-btn" onclick="adjustTime('on', 1)">+</button>
+            </div>
         </div>
         <div class="settings-buttons">
             <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
@@ -551,6 +599,10 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ orientation }),
                 });
+                // Show saved feedback
+                const msg = document.getElementById('orient-saved');
+                msg.classList.add('show');
+                setTimeout(() => msg.classList.remove('show'), 2000);
             } catch (e) {
                 console.error('Failed to save orientation:', e);
             }
@@ -562,8 +614,8 @@
                 const resp = await fetch('/schedule');
                 if (resp.ok) {
                     const data = await resp.json();
-                    document.getElementById('schedule-off').value = data.off_time || '22:00';
-                    document.getElementById('schedule-on').value = data.on_time || '07:00';
+                    document.getElementById('schedule-off').textContent = data.off_time || '22:00';
+                    document.getElementById('schedule-on').textContent = data.on_time || '07:00';
                     const btn = document.getElementById('schedule-btn');
                     if (data.enabled) {
                         btn.classList.add('active');
@@ -576,6 +628,15 @@
             }
         }
 
+        function adjustTime(which, delta) {
+            const el = document.getElementById('schedule-' + which);
+            const parts = el.textContent.split(':');
+            let hours = parseInt(parts[0]);
+            hours = (hours + delta + 24) % 24;
+            el.textContent = String(hours).padStart(2, '0') + ':00';
+            saveSchedule();
+        }
+
         function toggleSchedule() {
             const btn = document.getElementById('schedule-btn');
             btn.classList.toggle('active');
@@ -584,8 +645,8 @@
 
         async function saveSchedule() {
             const enabled = document.getElementById('schedule-btn').classList.contains('active');
-            const off_time = document.getElementById('schedule-off').value;
-            const on_time = document.getElementById('schedule-on').value;
+            const off_time = document.getElementById('schedule-off').textContent;
+            const on_time = document.getElementById('schedule-on').textContent;
             try {
                 await fetch('/schedule', {
                     method: 'POST',
