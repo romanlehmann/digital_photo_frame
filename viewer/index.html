@@ -56,7 +56,30 @@
             height: 200px;
             z-index: 1000;
             clip-path: polygon(100% 0, 0 0, 100% 100%);
-            background: rgba(255, 255, 255, 0.08);
+            background: transparent;
+            transition: background 0.3s ease;
+        }
+
+        #hot-corner.holding {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        #hot-corner-progress {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 200px;
+            height: 200px;
+            z-index: 1001;
+            clip-path: polygon(100% 0, 0 0, 100% 100%);
+            background: conic-gradient(rgba(255,255,255,0.4) var(--progress, 0%), transparent 0%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        #hot-corner-progress.active {
+            opacity: 1;
         }
 
         #loading {
@@ -193,6 +216,7 @@
         </div>
     </div>
     <div id="hot-corner"></div>
+    <div id="hot-corner-progress"></div>
 
     <script>
         // Configuration (loaded from server /config endpoint)
@@ -208,17 +232,55 @@
         let previousImage = null;
         let intervalId = null;
 
-        // Setup hot corner (updated by init() after config loads)
+        // Setup hot corner - 3 second hold to open settings
         const hotCorner = document.getElementById('hot-corner');
+        const hotCornerProgress = document.getElementById('hot-corner-progress');
         let holdTimer = null;
+        let holdAnimFrame = null;
+        let holdStartTime = null;
+        const HOLD_DURATION = 3000;
 
-        // Tap hot corner to open settings
-        hotCorner.addEventListener('click', () => openSettings());
-        hotCorner.addEventListener('touchstart', (e) => {
+        function startHold(e) {
             e.preventDefault();
             e.stopPropagation();
-            openSettings();
-        });
+            holdStartTime = Date.now();
+            hotCorner.classList.add('holding');
+            hotCornerProgress.classList.add('active');
+            animateProgress();
+            holdTimer = setTimeout(() => {
+                cancelHold();
+                openSettings();
+            }, HOLD_DURATION);
+        }
+
+        function animateProgress() {
+            if (!holdStartTime) return;
+            const elapsed = Date.now() - holdStartTime;
+            const pct = Math.min(100, (elapsed / HOLD_DURATION) * 100);
+            hotCornerProgress.style.setProperty('--progress', pct + '%');
+            if (pct < 100) {
+                holdAnimFrame = requestAnimationFrame(animateProgress);
+            }
+        }
+
+        function cancelHold() {
+            if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+            if (holdAnimFrame) { cancelAnimationFrame(holdAnimFrame); holdAnimFrame = null; }
+            holdStartTime = null;
+            hotCorner.classList.remove('holding');
+            hotCornerProgress.classList.remove('active');
+            hotCornerProgress.style.setProperty('--progress', '0%');
+        }
+
+        // Touch: start hold, cancel only on touchend/touchcancel (NOT touchmove)
+        hotCorner.addEventListener('touchstart', startHold, { passive: false });
+        hotCorner.addEventListener('touchend', (e) => { e.preventDefault(); cancelHold(); });
+        hotCorner.addEventListener('touchcancel', cancelHold);
+
+        // Mouse fallback
+        hotCorner.addEventListener('mousedown', startHold);
+        hotCorner.addEventListener('mouseup', cancelHold);
+        hotCorner.addEventListener('mouseleave', cancelHold);
 
         // Settings overlay
         async function openSettings() {
