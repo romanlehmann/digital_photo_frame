@@ -230,6 +230,22 @@
             min-width: 50px;
             text-align: center;
         }
+
+        .auto-btn {
+            padding: 8px 16px;
+            font-size: 16px;
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: #222;
+            color: #888;
+            white-space: nowrap;
+        }
+
+        .auto-btn.active {
+            border-color: #4a4;
+            color: #6d6;
+            background: #1a2e1a;
+        }
     </style>
 </head>
 <body>
@@ -260,6 +276,7 @@
             <input type="range" id="brightness-slider" min="10" max="100" value="100"
                    oninput="setBrightness(this.value)">
             <span class="brightness-value" id="brightness-value">100%</span>
+            <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
         </div>
         <div class="settings-buttons">
             <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
@@ -335,6 +352,9 @@
         hotCorner.addEventListener('mouseleave', cancelHold);
 
         // Brightness control
+        let autoBrightnessEnabled = localStorage.getItem('frame-auto-brightness') === 'true';
+        let autoBrightnessInterval = null;
+
         function setBrightness(val) {
             const pct = parseInt(val);
             document.getElementById('slideshow').style.filter = `brightness(${pct / 100})`;
@@ -343,10 +363,56 @@
             localStorage.setItem('frame-brightness', pct);
         }
 
-        // Restore saved brightness
+        function toggleAutoBrightness() {
+            autoBrightnessEnabled = !autoBrightnessEnabled;
+            localStorage.setItem('frame-auto-brightness', autoBrightnessEnabled);
+            updateAutoBrightnessUI();
+
+            if (autoBrightnessEnabled) {
+                fetchAutoBrightness();
+                autoBrightnessInterval = setInterval(fetchAutoBrightness, 30000);
+            } else {
+                if (autoBrightnessInterval) { clearInterval(autoBrightnessInterval); autoBrightnessInterval = null; }
+            }
+        }
+
+        function updateAutoBrightnessUI() {
+            const btn = document.getElementById('auto-brightness-btn');
+            const slider = document.getElementById('brightness-slider');
+            if (autoBrightnessEnabled) {
+                btn.classList.add('active');
+                slider.disabled = true;
+                slider.style.opacity = '0.4';
+            } else {
+                btn.classList.remove('active');
+                slider.disabled = false;
+                slider.style.opacity = '1';
+            }
+        }
+
+        async function fetchAutoBrightness() {
+            try {
+                const resp = await fetch('/brightness');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.brightness != null) {
+                        setBrightness(data.brightness);
+                    }
+                }
+            } catch (e) {
+                console.error('Auto brightness fetch failed:', e);
+            }
+        }
+
+        // Restore saved brightness and auto state
         const savedBrightness = localStorage.getItem('frame-brightness');
         if (savedBrightness) {
             setBrightness(savedBrightness);
+        }
+        if (autoBrightnessEnabled) {
+            updateAutoBrightnessUI();
+            fetchAutoBrightness();
+            autoBrightnessInterval = setInterval(fetchAutoBrightness, 30000);
         }
 
         // Settings overlay
@@ -356,10 +422,11 @@
             // Pause slideshow
             if (intervalId) clearInterval(intervalId);
 
-            // Sync brightness slider
+            // Sync brightness slider and auto button
             const currentBrightness = localStorage.getItem('frame-brightness') || '100';
             document.getElementById('brightness-slider').value = currentBrightness;
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
+            updateAutoBrightnessUI();
 
             try {
                 const resp = await fetch('/sysinfo');

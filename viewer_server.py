@@ -43,6 +43,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_photos_json()
         elif path == '/sysinfo':
             self.serve_sysinfo()
+        elif path == '/brightness':
+            self.serve_brightness()
         elif path.startswith('/photos/'):
             # Serve photo file
             photo_name = path[8:]  # Remove '/photos/' prefix
@@ -223,6 +225,28 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         info['photo_count'] = photo_count
 
         content = json.dumps(info).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def serve_brightness(self):
+        """Serve auto brightness value from ambient light sensor."""
+        brightness = None
+        try:
+            # TODO: Read from ambient light sensor (e.g. BH1750, TSL2561)
+            # For now, try reading from a file that a sensor script can write to
+            sensor_file = Path('/tmp/frame-brightness')
+            if sensor_file.exists():
+                val = int(sensor_file.read_text().strip())
+                brightness = max(10, min(100, val))
+        except Exception:
+            pass
+
+        data = {'brightness': brightness}
+        content = json.dumps(data).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Cache-Control', 'no-cache')
