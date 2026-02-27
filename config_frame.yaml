@@ -15,6 +15,10 @@ synology:
   share_passphrases:
     - ""
 
+# Google Photos (public shared albums, no auth required)
+google_photos:
+  share_urls: []
+
 # Photo storage and processing
 photos:
   base_dir: "/srv/frame/photos"

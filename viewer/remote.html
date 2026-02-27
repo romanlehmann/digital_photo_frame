@@ -97,6 +97,22 @@
             margin-bottom: 16px;
         }
         .btn-add:active { background: #333; }
+        .section-header {
+            font-size: 16px;
+            color: #888;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        .album-name {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .album-name-loading {
+            color: #666;
+            font-style: italic;
+        }
         .btn-save { background: #2a6; }
         .btn-sync { background: #36a; }
         #status-bar {
@@ -120,10 +136,15 @@
 </head>
 <body>
     <h1>FolderSync</h1>
-    <div class="subtitle">Configure Synology Photos albums</div>
+    <div class="subtitle">Configure photo sources</div>
 
+    <h2 class="section-header">Synology Photos</h2>
     <div id="albums"></div>
-    <button class="btn-add" onclick="addAlbum()">+ Add Album</button>
+    <button class="btn-add" onclick="addAlbum()">+ Add Synology Album</button>
+
+    <h2 class="section-header">Google Photos</h2>
+    <div id="gph-albums"></div>
+    <button class="btn-add" onclick="addGphAlbum()">+ Add Google Album</button>
 
     <div class="btn-row">
         <button class="btn btn-save" onclick="saveConfig()">Save</button>
@@ -134,9 +155,27 @@
 
     <script>
         var albums = [];
+        var gphAlbums = [];
         var syncPollId = null;
 
+        function sortByName(arr) {
+            arr.sort(function(a, b) {
+                var na = (a.name || a.url || '').toLowerCase();
+                var nb = (b.name || b.url || '').toLowerCase();
+                return na.localeCompare(nb);
+            });
+        }
+
+        function albumLabel(album) {
+            if (album.name) return '<span class="album-name">' + escapeAttr(album.name) + '</span>';
+            if (album.url) return '<span class="album-name album-name-loading">resolving\u2026</span>';
+            return '<span class="album-name album-name-loading">new album</span>';
+        }
+
         function render() {
+            sortByName(albums);
+            sortByName(gphAlbums);
+
             var container = document.getElementById('albums');
             container.innerHTML = '';
             albums.forEach(function(album, i) {
@@ -144,7 +183,7 @@
                 card.className = 'album-card';
                 card.innerHTML =
                     '<div class="album-header">' +
-                        '<span>Album ' + (i + 1) + '</span>' +
+                        albumLabel(album) +
                         '<button class="remove-btn" onclick="removeAlbum(' + i + ')">Remove</button>' +
                     '</div>' +
                     '<label>Share URL</label>' +
@@ -156,6 +195,23 @@
                         'value="' + escapeAttr(album.pass) + '" ' +
                         'oninput="albums[' + i + '].pass=this.value">';
                 container.appendChild(card);
+            });
+
+            var gphContainer = document.getElementById('gph-albums');
+            gphContainer.innerHTML = '';
+            gphAlbums.forEach(function(album, i) {
+                var card = document.createElement('div');
+                card.className = 'album-card';
+                card.innerHTML =
+                    '<div class="album-header">' +
+                        albumLabel(album) +
+                        '<button class="remove-btn" onclick="removeGphAlbum(' + i + ')">Remove</button>' +
+                    '</div>' +
+                    '<label>Share URL</label>' +
+                    '<input type="text" placeholder="https://photos.app.goo.gl/..." ' +
+                        'value="' + escapeAttr(album.url) + '" ' +
+                        'oninput="gphAlbums[' + i + '].url=this.value">';
+                gphContainer.appendChild(card);
             });
         }
 
@@ -173,6 +229,16 @@
             render();
         }
 
+        function addGphAlbum() {
+            gphAlbums.push({ url: '' });
+            render();
+        }
+
+        function removeGphAlbum(i) {
+            gphAlbums.splice(i, 1);
+            render();
+        }
+
         function showStatus(msg, cls) {
             var bar = document.getElementById('status-bar');
             bar.textContent = msg;
@@ -184,21 +250,33 @@
         }
 
         function saveConfig() {
-            var urls = albums.map(function(a) { return a.url; });
-            var passes = albums.map(function(a) { return a.pass; });
+            var synUrls = albums.map(function(a) { return a.url; });
+            var synPasses = albums.map(function(a) { return a.pass; });
+            var gphUrls = gphAlbums.map(function(a) { return a.url; });
             showStatus('Saving...', '');
-            fetch('/api/synology', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ share_urls: urls, share_passphrases: passes })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.ok) {
+
+            // Save both Synology and Google Photos configs
+            Promise.all([
+                fetch('/api/synology', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ share_urls: synUrls, share_passphrases: synPasses })
+                }).then(function(r) { return r.json(); }),
+                fetch('/api/google_photos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ share_urls: gphUrls })
+                }).then(function(r) { return r.json(); })
+            ])
+            .then(function(results) {
+                var allOk = results.every(function(d) { return d.ok; });
+                if (allOk) {
                     showStatus('Saved', 'success');
                     setTimeout(hideStatus, 2000);
                 } else {
-                    showStatus('Error: ' + (data.error || 'unknown'), 'error');
+                    var errs = results.filter(function(d) { return !d.ok; })
+                        .map(function(d) { return d.error || 'unknown'; });
+                    showStatus('Error: ' + errs.join(', '), 'error');
                 }
             })
             .catch(function(e) {
@@ -252,20 +330,49 @@
             }, 3000);
         }
 
+        function fetchAlbumNames() {
+            fetch('/api/album_names')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var synNames = data.synology || {};
+                var gphNames = data.google || {};
+                albums.forEach(function(a) {
+                    if (synNames[a.url]) a.name = synNames[a.url];
+                });
+                gphAlbums.forEach(function(a) {
+                    if (gphNames[a.url]) a.name = gphNames[a.url];
+                });
+                render();
+            })
+            .catch(function() {});
+        }
+
         // Load current config on page load
-        fetch('/api/synology')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var urls = data.share_urls || [];
-            var passes = data.share_passphrases || [];
+        Promise.all([
+            fetch('/api/synology').then(function(r) { return r.json(); }),
+            fetch('/api/google_photos').then(function(r) { return r.json(); })
+        ])
+        .then(function(results) {
+            var synData = results[0];
+            var gphData = results[1];
+
+            var urls = synData.share_urls || [];
+            var passes = synData.share_passphrases || [];
             for (var i = 0; i < urls.length; i++) {
                 albums.push({ url: urls[i], pass: passes[i] || '' });
             }
-            if (albums.length === 0) addAlbum();
-            else render();
+
+            var gphUrls = gphData.share_urls || [];
+            for (var j = 0; j < gphUrls.length; j++) {
+                gphAlbums.push({ url: gphUrls[j] });
+            }
+
+            render();
+            // Resolve album names (may be slow for Synology auth)
+            fetchAlbumNames();
         })
         .catch(function() {
-            addAlbum();
+            render();
         });
     </script>
 </body>

@@ -149,27 +149,27 @@ class EnergySaveManager:
         if self.sleeping:
             self._set_sleep(False)
 
-    WLOPM_ENV = {
-        'WAYLAND_DISPLAY': 'wayland-0',
-        'XDG_RUNTIME_DIR': '/tmp/frame-runtime',
-    }
-
     def _set_sleep(self, sleep):
         try:
             if sleep and not self.sleeping:
                 self.sleeping = True
-                # DPMS off while cage is still running (monitor → standby, backlight off)
-                env = {**os.environ, **self.WLOPM_ENV}
-                subprocess.run(['sudo', '-u', 'robert', 'env',
-                    'WAYLAND_DISPLAY=wayland-0',
-                    'XDG_RUNTIME_DIR=/tmp/frame-runtime',
-                    'wlopm', '--off', 'HDMI-A-1'],
-                    capture_output=True, timeout=5)
-                # Wait for monitor to enter standby, then stop cage to free RAM
-                time.sleep(3)
+                # Stop cage to free RAM (returns to Linux console/framebuffer)
                 subprocess.run(['sudo', 'systemctl', 'stop', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
-                logger.info("Sleep: DPMS off + stopped display service")
+                time.sleep(1)
+                # Fill framebuffer with black — keeps HDMI signal active
+                # (avoids ANMITE "no signal" blue screen that DPMS causes)
+                subprocess.run(['sudo', 'dd', 'if=/dev/zero', 'of=/dev/fb0',
+                                'bs=1M', 'count=10'],
+                             capture_output=True, timeout=5)
+                # Hide console cursor and prevent text from appearing
+                subprocess.run(['sudo', 'sh', '-c',
+                                'setterm --cursor off --blank force --powerdown 0 > /dev/tty1'],
+                             capture_output=True, timeout=5)
+                # Try to turn off backlight via DDC/CI (best effort)
+                subprocess.run(['ddcutil', 'setvcp', '10', '0'],
+                             capture_output=True, timeout=10)
+                logger.info("Sleep: stopped display, framebuffer black")
                 # Trigger photo sync during sleep (cage stopped = more RAM)
                 global _syncer
                 if _syncer:
@@ -180,7 +180,10 @@ class EnergySaveManager:
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
-                # Start cage — returning HDMI signal wakes the monitor
+                # Restore backlight via DDC/CI (best effort)
+                subprocess.run(['ddcutil', 'setvcp', '10', '80'],
+                             capture_output=True, timeout=10)
+                # Start cage — takes over framebuffer, resumes slideshow
                 subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
                 self.sleeping = False
@@ -265,6 +268,7 @@ _energy_save = None
 _config_path = None
 _syncer = None
 _config = None
+_album_name_cache = {}  # url -> resolved album name
 
 
 class PhotoFrameHandler(SimpleHTTPRequestHandler):
@@ -304,6 +308,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_remote()
         elif path == '/api/synology':
             self.serve_synology_config()
+        elif path == '/api/google_photos':
+            self.serve_google_photos_config()
+        elif path == '/api/album_names':
+            self.serve_album_names()
         elif path == '/api/qrcode':
             self.serve_qrcode(parsed_path)
         elif path.startswith('/photos/'):
@@ -329,6 +337,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_sync_trigger()
         elif self.path == '/api/synology':
             self.handle_save_synology_config()
+        elif self.path == '/api/google_photos':
+            self.handle_save_google_photos_config()
         else:
             self.send_error(404, "Not found")
     
@@ -598,10 +608,22 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({'ok': True, 'sync_triggered': not has_photos}).encode())
 
             if new_orientation != old_orientation:
-                # Trigger sync if the target folder is empty
-                if not has_photos and _syncer:
-                    logger.info(f"Orientation switch to {new_orientation}: no photos, triggering sync")
-                    _syncer.run_sync()
+                # Trim the old orientation to 100 photos (free space)
+                def cleanup_and_sync():
+                    try:
+                        from photo_sync import PhotoDatabase
+                        db_path = photos_config.get('state_db', str(base_dir / 'state.db'))
+                        if Path(db_path).exists():
+                            db = PhotoDatabase(db_path)
+                            db.cleanup_orientation(old_orientation, 100, base_dir)
+                            db.close()
+                    except Exception as e:
+                        logger.error(f"Orientation cleanup error: {e}")
+                    # Trigger sync for the new orientation
+                    if _syncer:
+                        logger.info(f"Orientation switch to {new_orientation}: triggering sync")
+                        _syncer.run_sync()
+                threading.Thread(target=cleanup_and_sync, daemon=True).start()
 
                 # Restart cage to apply rotation (autostart reads config)
                 def restart_cage():
@@ -719,6 +741,107 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({'ok': False, 'error': str(e)}).encode())
 
+    def serve_google_photos_config(self):
+        """Serve Google Photos share URLs as JSON."""
+        global _config
+        gph = (_config or {}).get('google_photos', {})
+        data = {'share_urls': gph.get('share_urls', [])}
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_save_google_photos_config(self):
+        """Save Google Photos share URLs to config."""
+        global _config, _config_path, _syncer
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            import yaml
+            data = json.loads(body)
+            urls = data.get('share_urls', [])
+            if not isinstance(urls, list):
+                raise ValueError('share_urls must be a list')
+
+            # Update in-memory config
+            _config.setdefault('google_photos', {})
+            _config['google_photos']['share_urls'] = urls
+
+            # Write to YAML
+            with open(_config_path, 'w') as f:
+                yaml.dump(_config, f, default_flow_style=False)
+
+            # Create syncer if it didn't exist before and we now have URLs
+            if _syncer is None and any(urls):
+                from photo_sync import PhotoSyncer
+                _syncer = PhotoSyncer(_config)
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True}).encode())
+            logger.info(f"Google Photos config saved: {len(urls)} album(s)")
+        except Exception as e:
+            logger.error(f"Error saving Google Photos config: {e}")
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': False, 'error': str(e)}).encode())
+
+    def serve_album_names(self):
+        """Resolve and return album names for all configured URLs.
+
+        Returns {synology: {url: name, ...}, google: {url: name, ...}}.
+        Uses an in-memory cache so repeated calls are fast.
+        """
+        global _config, _album_name_cache
+        from photo_sync import SynologyPhotosClient, GooglePhotosClient
+
+        synology = (_config or {}).get('synology', {})
+        google = (_config or {}).get('google_photos', {})
+
+        syn_urls = synology.get('share_urls', [])
+        syn_passes = synology.get('share_passphrases', [])
+        gph_urls = google.get('share_urls', [])
+        local_api = synology.get('local_api_base', 'https://100.101.43.67:5443')
+
+        result = {'synology': {}, 'google': {}}
+
+        # Resolve Synology album names
+        for url, pw in zip(syn_urls, syn_passes):
+            if not url:
+                continue
+            if url in _album_name_cache:
+                result['synology'][url] = _album_name_cache[url]
+            else:
+                name = SynologyPhotosClient.resolve_album_name(url, pw, local_api)
+                if name:
+                    _album_name_cache[url] = name
+                    result['synology'][url] = name
+
+        # Resolve Google Photos album names
+        for url in gph_urls:
+            if not url:
+                continue
+            if url in _album_name_cache:
+                result['google'][url] = _album_name_cache[url]
+            else:
+                name = GooglePhotosClient.resolve_album_name(url)
+                if name:
+                    _album_name_cache[url] = name
+                    result['google'][url] = name
+
+        content = json.dumps(result).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
     def serve_qrcode(self, parsed_path):
         """Generate QR code modules as JSON for client-side canvas rendering."""
         params = parse_qs(parsed_path.query)
@@ -813,8 +936,10 @@ def main():
         _sysinfo_cache = SysinfoCache(photos_dir)
         _energy_save = EnergySaveManager()
 
-        # Initialize photo syncer (if synology config is present)
-        if config.get('synology', {}).get('share_urls'):
+        # Initialize photo syncer (if any source is configured)
+        has_synology = any(config.get('synology', {}).get('share_urls', []))
+        has_google = any(config.get('google_photos', {}).get('share_urls', []))
+        if has_synology or has_google:
             _syncer = PhotoSyncer(config)
             # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)
             def boot_sync():

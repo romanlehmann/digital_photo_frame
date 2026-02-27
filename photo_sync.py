@@ -13,7 +13,9 @@ Or be imported and driven by viewer_server.py (boot sync, sleep sync).
 
 import os
 import sys
+import re
 import sqlite3
+import hashlib
 import logging
 import time
 import shutil
@@ -159,6 +161,50 @@ class SynologyPhotosClient:
         logger.info(f"Total photos fetched: {len(all_items)}")
         return all_items
 
+    def get_album_name(self) -> str:
+        """Get album name after share initialization.
+
+        Tries SYNO.Foto.Browse.Album first, then SYNO.Foto.Sharing.Misc.
+        """
+        for api, key_path in [
+            ('SYNO.Foto.Browse.Album', ('list', 0, 'name')),
+            ('SYNO.Foto.Sharing.Misc', ('sharing', 'album_name')),
+        ]:
+            try:
+                data = {
+                    'api': api,
+                    'method': 'list' if 'Album' in api else 'get',
+                    'version': 1,
+                    'offset': 0,
+                    'limit': 1,
+                }
+                resp = self.session.post(self._local_api_url(api), data=data)
+                result = resp.json()
+                if result.get('success'):
+                    obj = result.get('data', {})
+                    for k in key_path:
+                        if isinstance(k, int):
+                            obj = obj[k]
+                        else:
+                            obj = obj.get(k, {})
+                    if isinstance(obj, str) and obj:
+                        return obj
+            except Exception:
+                continue
+        return ''
+
+    @classmethod
+    def resolve_album_name(cls, share_url: str, passphrase: str,
+                           local_api_base: str = 'https://100.101.43.67:5443') -> str:
+        """Create a temporary client, auth, and return the album name."""
+        try:
+            client = cls(share_url, passphrase, local_api_base)
+            if client.initialize_share():
+                return client.get_album_name()
+        except Exception as e:
+            logger.warning(f"Failed to resolve Synology album name: {e}")
+        return ''
+
     def download_item(self, item_id: int, output_path: Path) -> bool:
         """Download a single item to the specified path."""
         api = 'SYNO.Foto.Download'
@@ -187,6 +233,81 @@ class SynologyPhotosClient:
 
 
 # ---------------------------------------------------------------------------
+# Google Photos client (public shared albums, no OAuth)
+# ---------------------------------------------------------------------------
+
+class GooglePhotosClient:
+    """Client for Google Photos shared albums via public share links.
+
+    Fetches the shared album HTML page, extracts lh3.googleusercontent.com
+    image URLs from embedded JS/HTML, and downloads full-resolution images
+    by appending =w0 to the base URL.
+    """
+
+    def __init__(self, share_url: str):
+        self.share_url = share_url
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+        })
+
+    def get_all_items(self) -> List[Dict[str, Any]]:
+        """Fetch the shared album page and extract image URLs."""
+        resp = self.session.get(self.share_url, timeout=30)
+        resp.raise_for_status()
+
+        # Extract lh3 image URLs from the page (embedded in JS data)
+        pattern = r'https://lh3\.googleusercontent\.com/[a-zA-Z0-9_\-]+'
+        raw_urls = list(set(re.findall(pattern, resp.text)))
+
+        items = []
+        for url in raw_urls:
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+            items.append({
+                'id': f'gph_{url_hash}',
+                'filename': f'gphoto_{url_hash}.jpg',
+                '_download_url': url + '=w0',  # full resolution
+            })
+
+        logger.info(f"Google Photos: found {len(items)} images in shared album")
+        return items
+
+    @staticmethod
+    def resolve_album_name(share_url: str) -> str:
+        """Fetch the shared album page and extract the album name from <title>."""
+        try:
+            resp = requests.get(share_url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+            })
+            match = re.search(r'<title>([^<]+)</title>', resp.text)
+            if match:
+                name = match.group(1).strip()
+                for suffix in [' - Google Photos', ' \u2013 Google Photos']:
+                    if name.endswith(suffix):
+                        name = name[:-len(suffix)]
+                if name and name != 'Google Photos':
+                    return name
+        except Exception as e:
+            logger.warning(f"Failed to resolve Google album name: {e}")
+        return ''
+
+    def download_item(self, download_url: str, output_path: Path) -> bool:
+        """Download a single image from Google Photos."""
+        try:
+            resp = self.session.get(download_url, stream=True, timeout=60)
+            resp.raise_for_status()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to download Google photo: {e}")
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Photo state database
 # ---------------------------------------------------------------------------
 
@@ -204,7 +325,7 @@ class PhotoDatabase:
         cursor = self.conn.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS photos (
-                item_id INTEGER PRIMARY KEY,
+                item_id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
                 filesize INTEGER,
                 taken_time INTEGER,
@@ -227,11 +348,52 @@ class PhotoDatabase:
             )
         ''')
         self.conn.commit()
+        self._migrate_item_id_to_text()
 
-    def update_items(self, items: List[Dict[str, Any]]) -> List[int]:
+    def _migrate_item_id_to_text(self):
+        """Migrate item_id column from INTEGER to TEXT if needed.
+
+        Existing Synology rows get a 'syn_' prefix on their IDs.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA table_info(photos)")
+        columns = cursor.fetchall()
+        for col in columns:
+            # col: (cid, name, type, notnull, default, pk)
+            if col[1] == 'item_id' and col[2].upper() == 'INTEGER':
+                logger.info("Migrating photos table: item_id INTEGER -> TEXT")
+                cursor.execute('''
+                    CREATE TABLE photos_new (
+                        item_id TEXT PRIMARY KEY,
+                        filename TEXT NOT NULL,
+                        filesize INTEGER,
+                        taken_time INTEGER,
+                        first_seen TEXT NOT NULL,
+                        last_seen TEXT NOT NULL,
+                        downloaded INTEGER DEFAULT 0,
+                        download_failed INTEGER DEFAULT 0,
+                        h_filename TEXT,
+                        v_filename TEXT
+                    )
+                ''')
+                cursor.execute('''
+                    INSERT INTO photos_new
+                    SELECT 'syn_' || CAST(item_id AS TEXT),
+                           filename, filesize, taken_time,
+                           first_seen, last_seen, downloaded,
+                           download_failed, h_filename, v_filename
+                    FROM photos
+                ''')
+                cursor.execute('DROP TABLE photos')
+                cursor.execute('ALTER TABLE photos_new RENAME TO photos')
+                self.conn.commit()
+                logger.info("Migration complete")
+                break
+
+    def update_items(self, items: List[Dict[str, Any]]) -> List[Tuple[Optional[str], Optional[str]]]:
         """Update database with items from the API.
 
-        Returns list of item_ids that were removed (stale).
+        Returns list of (h_filename, v_filename) tuples for removed (stale) items.
         """
         cursor = self.conn.cursor()
         now = datetime.now().isoformat()
@@ -254,11 +416,18 @@ class PhotoDatabase:
                 now,
             ))
 
-        # Remove entries no longer in the album
+        # Find stale entries (no longer in any album)
         item_ids = {item['id'] for item in items}
-        cursor.execute('SELECT item_id FROM photos')
-        db_ids = {row['item_id'] for row in cursor.fetchall()}
-        stale_ids = list(db_ids - item_ids)
+        cursor.execute('SELECT item_id, h_filename, v_filename FROM photos')
+        all_rows = cursor.fetchall()
+        stale_files = []
+        stale_ids = []
+        for row in all_rows:
+            if row['item_id'] not in item_ids:
+                stale_ids.append(row['item_id'])
+                stale_files.append((row['h_filename'], row['v_filename']))
+
+        # Delete stale rows
         if stale_ids:
             cursor.executemany(
                 'DELETE FROM photos WHERE item_id = ?',
@@ -268,29 +437,40 @@ class PhotoDatabase:
 
         self.conn.commit()
         logger.info(f"Updated {len(items)} items in database")
-        return stale_ids
+        return stale_files
 
-    def get_undownloaded(self) -> List[Dict[str, Any]]:
-        """Get items that haven't been downloaded yet (with < 3 failures)."""
+    def get_unprocessed(self, orientation: str) -> List[Dict[str, Any]]:
+        """Get items not yet processed for the given orientation (with < 3 failures).
+
+        Also returns 'other_filename' so caller knows if the other orientation exists.
+        """
+        col = 'h_filename' if orientation == 'horizontal' else 'v_filename'
+        other_col = 'v_filename' if orientation == 'horizontal' else 'h_filename'
         cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT item_id, filename, filesize
+        cursor.execute(f'''
+            SELECT item_id, filename, filesize, {other_col} as other_filename
             FROM photos
-            WHERE downloaded = 0 AND download_failed < 3
+            WHERE {col} IS NULL AND download_failed < 3
         ''')
         return [dict(row) for row in cursor.fetchall()]
 
-    def mark_downloaded(self, item_id: int, h_filename: str, v_filename: str):
-        """Mark an item as successfully downloaded and processed."""
+    def mark_processed(self, item_id, h_filename: str = None, v_filename: str = None):
+        """Mark orientation-specific filenames after processing."""
         cursor = self.conn.cursor()
-        cursor.execute('''
-            UPDATE photos
-            SET downloaded = 1, h_filename = ?, v_filename = ?
-            WHERE item_id = ?
-        ''', (h_filename, v_filename, item_id))
+        updates = ['downloaded = 1']
+        params = []
+        if h_filename is not None:
+            updates.append('h_filename = ?')
+            params.append(h_filename)
+        if v_filename is not None:
+            updates.append('v_filename = ?')
+            params.append(v_filename)
+        params.append(item_id)
+        cursor.execute(
+            f'UPDATE photos SET {", ".join(updates)} WHERE item_id = ?', params)
         self.conn.commit()
 
-    def mark_failed(self, item_id: int):
+    def mark_failed(self, item_id):
         """Increment the failure counter for an item."""
         cursor = self.conn.cursor()
         cursor.execute('''
@@ -300,17 +480,34 @@ class PhotoDatabase:
         ''', (item_id,))
         self.conn.commit()
 
-    def get_filenames_for_stale(self, item_ids: List[int]) -> List[Tuple[str, str]]:
-        """Get h_filename, v_filename for stale items (for cleanup)."""
-        if not item_ids:
-            return []
+    def cleanup_orientation(self, orientation: str, keep_count: int, base_dir: Path):
+        """Delete processed files for an orientation beyond keep_count, clear DB refs.
+
+        Returns the number of files deleted.
+        """
+        photo_dir = base_dir / orientation
+        if not photo_dir.exists():
+            return 0
+
+        photos = sorted(photo_dir.glob('*.jpg'))
+        if len(photos) <= keep_count:
+            return 0
+
+        to_delete = photos[keep_count:]
+        deleted_names = set()
+        for p in to_delete:
+            deleted_names.add(p.name)
+            p.unlink(missing_ok=True)
+
+        # Clear DB references for deleted files
+        col = 'h_filename' if orientation == 'horizontal' else 'v_filename'
         cursor = self.conn.cursor()
-        placeholders = ','.join('?' * len(item_ids))
-        cursor.execute(f'''
-            SELECT h_filename, v_filename FROM photos
-            WHERE item_id IN ({placeholders})
-        ''', item_ids)
-        return [(row['h_filename'], row['v_filename']) for row in cursor.fetchall()]
+        for name in deleted_names:
+            cursor.execute(f'UPDATE photos SET {col} = NULL WHERE {col} = ?', (name,))
+        self.conn.commit()
+
+        logger.info(f"Cleaned {len(to_delete)} {orientation} photos (kept {keep_count})")
+        return len(to_delete)
 
     def get_counts(self) -> Dict[str, int]:
         """Get photo counts for status display."""
@@ -393,14 +590,16 @@ def create_blur_fill(image: Image.Image, target_w: int, target_h: int,
 
 
 def process_photo(source_path: Path, output_dir: Path,
-                  item_id: int, filename: str,
+                  item_id, filename: str,
                   h_size: Tuple[int, int], v_size: Tuple[int, int],
                   blur_radius: int, blur_darken: float,
-                  quality: int) -> Optional[Tuple[str, str]]:
-    """Process a single photo into horizontal and vertical versions.
+                  quality: int,
+                  orientations: Tuple[str, ...] = ('horizontal', 'vertical'),
+                  ) -> Optional[Tuple[Optional[str], Optional[str]]]:
+    """Process a single photo into the requested orientations.
 
-    Returns (h_filename, v_filename) on success, None on failure.
-    Uses {item_id}_{stem}.jpg as filename for stability across syncs.
+    Returns (h_filename, v_filename) on success — either may be None if that
+    orientation was not requested.  Returns None on failure.
     """
     try:
         image = Image.open(source_path)
@@ -415,20 +614,25 @@ def process_photo(source_path: Path, output_dir: Path,
 
         stem = Path(filename).stem
         out_name = f"{item_id}_{stem}.jpg"
+        h_fn = v_fn = None
 
-        h_path = output_dir / 'horizontal' / out_name
-        h_img = create_blur_fill(image, *h_size, blur_radius, blur_darken)
-        h_img.save(h_path, 'JPEG', quality=quality, optimize=True)
-        del h_img
+        if 'horizontal' in orientations:
+            h_path = output_dir / 'horizontal' / out_name
+            h_img = create_blur_fill(image, *h_size, blur_radius, blur_darken)
+            h_img.save(h_path, 'JPEG', quality=quality, optimize=True)
+            del h_img
+            h_fn = out_name
 
-        v_path = output_dir / 'vertical' / out_name
-        v_img = create_blur_fill(image, *v_size, blur_radius, blur_darken)
-        v_img.save(v_path, 'JPEG', quality=quality, optimize=True)
-        del v_img
+        if 'vertical' in orientations:
+            v_path = output_dir / 'vertical' / out_name
+            v_img = create_blur_fill(image, *v_size, blur_radius, blur_darken)
+            v_img.save(v_path, 'JPEG', quality=quality, optimize=True)
+            del v_img
+            v_fn = out_name
 
         del image
-        logger.debug(f"Processed: {filename} -> {out_name}")
-        return (out_name, out_name)
+        logger.debug(f"Processed: {filename} -> {out_name} ({', '.join(orientations)})")
+        return (h_fn, v_fn)
 
     except Exception as e:
         logger.error(f"Failed to process {source_path}: {e}")
@@ -526,6 +730,8 @@ class PhotoSyncer:
 
         db = PhotoDatabase(db_path)
 
+        google_config = self._config.get('google_photos', {})
+
         try:
             # --- Phase 1: Connect to albums and list all photos ---
             self._set_phase('listing')
@@ -535,20 +741,24 @@ class PhotoSyncer:
             if len(share_urls) != len(share_passphrases):
                 raise ValueError("share_urls and share_passphrases must have the same length")
 
-            albums = [(url, pw) for url, pw in zip(share_urls, share_passphrases) if url]
-            if not albums:
-                raise ValueError("No share URLs configured")
+            syn_albums = [(url, pw) for url, pw in zip(share_urls, share_passphrases) if url]
+            gph_urls = [u for u in google_config.get('share_urls', []) if u]
+
+            if not syn_albums and not gph_urls:
+                raise ValueError("No share URLs configured (Synology or Google)")
 
             all_items = []
-            item_client_map = {}
-            clients = []
+            item_client_map = {}  # item_id -> (client_type, client_index)
+            syn_clients = []
+            gph_clients = []
 
-            for album_idx, (share_url, passphrase) in enumerate(albums):
+            # -- Synology albums --
+            for album_idx, (share_url, passphrase) in enumerate(syn_albums):
                 if self._stop_event.is_set():
                     logger.info("Sync stopped by request")
                     return
 
-                logger.info(f"Connecting to album {album_idx + 1}/{len(albums)}...")
+                logger.info(f"Synology album {album_idx + 1}/{len(syn_albums)}...")
                 client = SynologyPhotosClient(
                     share_url=share_url,
                     passphrase=passphrase,
@@ -556,16 +766,37 @@ class PhotoSyncer:
                 )
 
                 if not client.initialize_share():
-                    logger.error(f"Failed to initialize album {album_idx + 1}, skipping")
+                    logger.error(f"Failed to initialize Synology album {album_idx + 1}, skipping")
                     continue
 
                 items = client.get_all_items()
-                logger.info(f"Album {album_idx + 1}: {len(items)} photos")
+                logger.info(f"Synology album {album_idx + 1}: {len(items)} photos")
 
                 for item in items:
-                    item_client_map[item['id']] = len(clients)
+                    # Prefix Synology IDs so they don't collide with Google IDs
+                    item['id'] = f"syn_{item['id']}"
+                    item_client_map[item['id']] = ('synology', len(syn_clients))
                 all_items.extend(items)
-                clients.append(client)
+                syn_clients.append(client)
+
+            # -- Google Photos albums --
+            for gph_idx, gph_url in enumerate(gph_urls):
+                if self._stop_event.is_set():
+                    logger.info("Sync stopped by request")
+                    return
+
+                logger.info(f"Google Photos album {gph_idx + 1}/{len(gph_urls)}...")
+                try:
+                    client = GooglePhotosClient(share_url=gph_url)
+                    items = client.get_all_items()
+                    logger.info(f"Google Photos album {gph_idx + 1}: {len(items)} photos")
+
+                    for item in items:
+                        item_client_map[item['id']] = ('google', len(gph_clients))
+                    all_items.extend(items)
+                    gph_clients.append(client)
+                except Exception as e:
+                    logger.error(f"Failed to fetch Google Photos album {gph_idx + 1}: {e}")
 
             if not all_items:
                 raise ValueError("No photos found in any album")
@@ -574,11 +805,10 @@ class PhotoSyncer:
 
             # --- Phase 2: Update database, clean stale files ---
             self._set_phase('updating_db')
-            stale_ids = db.update_items(all_items)
+            stale_files = db.update_items(all_items)
 
             # Clean up processed files for removed photos
-            if stale_ids:
-                stale_files = db.get_filenames_for_stale(stale_ids)
+            if stale_files:
                 for h_fn, v_fn in stale_files:
                     if h_fn:
                         (base_dir / 'horizontal' / h_fn).unlink(missing_ok=True)
@@ -588,8 +818,18 @@ class PhotoSyncer:
 
             # --- Phase 3: Download and process new photos ---
             self._set_phase('downloading')
-            undownloaded = db.get_undownloaded()
-            total = len(undownloaded)
+
+            # Only process into the current orientation; keep ≤100 in the other
+            orientation = self._config.get('frame', {}).get('orientation', 'horizontal')
+            other_orientation = 'vertical' if orientation == 'horizontal' else 'horizontal'
+            other_dir = base_dir / other_orientation
+            other_count = len(list(other_dir.glob('*.jpg'))) if other_dir.exists() else 0
+            other_limit = 100
+
+            logger.info(f"Sync orientation: {orientation} (other has {other_count}/{other_limit})")
+
+            unprocessed = db.get_unprocessed(orientation)
+            total = len(unprocessed)
             batch_size = photos_config.get('batch_size', 10)
             downloaded = 0
             processed = 0
@@ -600,7 +840,13 @@ class PhotoSyncer:
 
             self._progress = {'total': len(all_items), 'pending': total, 'downloaded': 0}
 
-            for idx, item in enumerate(undownloaded):
+            # Build download_url lookup for Google items
+            gph_download_urls = {}
+            for ai in all_items:
+                if '_download_url' in ai:
+                    gph_download_urls[ai['id']] = ai['_download_url']
+
+            for idx, item in enumerate(unprocessed):
                 if self._stop_event.is_set():
                     logger.info("Sync stopped by request")
                     break
@@ -613,15 +859,29 @@ class PhotoSyncer:
                 filename = item['filename']
                 download_path = tmp_dir / filename
 
-                client_idx = item_client_map.get(item_id)
-                if client_idx is None:
+                client_info = item_client_map.get(item_id)
+                if client_info is None:
                     logger.warning(f"Skipping item {item_id}: no client found")
                     db.mark_failed(item_id)
                     continue
 
-                client = clients[client_idx]
+                client_type, client_idx = client_info
 
-                if not client.download_item(item_id, download_path):
+                # Download using the appropriate client
+                if client_type == 'google':
+                    download_url = gph_download_urls.get(item_id)
+                    if not download_url:
+                        logger.warning(f"Skipping Google item {item_id}: no download URL")
+                        db.mark_failed(item_id)
+                        continue
+                    client = gph_clients[client_idx]
+                    ok = client.download_item(download_url, download_path)
+                else:
+                    client = syn_clients[client_idx]
+                    syn_id = int(item_id.replace('syn_', ''))
+                    ok = client.download_item(syn_id, download_path)
+
+                if not ok:
                     logger.warning(f"Skipping item {item_id}: download failed")
                     db.mark_failed(item_id)
                     download_path.unlink(missing_ok=True)
@@ -629,16 +889,23 @@ class PhotoSyncer:
 
                 downloaded += 1
 
+                # Decide which orientations to process
+                process_orientations = [orientation]
+                if other_count < other_limit and not item.get('other_filename'):
+                    process_orientations.append(other_orientation)
+                    other_count += 1
+
                 result = process_photo(
                     download_path, base_dir, item_id, filename,
                     h_size, v_size, blur_radius, blur_darken, quality,
+                    orientations=tuple(process_orientations),
                 )
 
                 download_path.unlink(missing_ok=True)
 
                 if result:
                     h_fn, v_fn = result
-                    db.mark_downloaded(item_id, h_fn, v_fn)
+                    db.mark_processed(item_id, h_fn, v_fn)
                     processed += 1
                 else:
                     db.mark_failed(item_id)
