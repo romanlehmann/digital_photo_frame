@@ -77,6 +77,9 @@ synology:
   share_passphrases: []
 google_photos:
   share_urls: []
+immich:
+  share_urls: []
+  share_passphrases: []
 logging:
   level: INFO
   file: /var/log/photo_frame.log

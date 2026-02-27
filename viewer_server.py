@@ -313,6 +313,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_synology_config()
         elif path == '/api/google_photos':
             self.serve_google_photos_config()
+        elif path == '/api/immich':
+            self.serve_immich_config()
         elif path == '/api/album_names':
             self.serve_album_names()
         elif path == '/api/qrcode':
@@ -346,6 +348,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
             self.handle_save_google_photos_config()
+        elif self.path == '/api/immich':
+            self.handle_save_immich_config()
         elif self.path == '/api/wifi/scan':
             self.handle_wifi_scan()
         elif self.path == '/api/wifi/connect':
@@ -802,24 +806,84 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({'ok': False, 'error': str(e)}).encode())
 
+    def serve_immich_config(self):
+        """Serve Immich share URLs and passphrases as JSON."""
+        global _config
+        immich = (_config or {}).get('immich', {})
+        data = {
+            'share_urls': immich.get('share_urls', []),
+            'share_passphrases': immich.get('share_passphrases', []),
+        }
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_save_immich_config(self):
+        """Save Immich share URLs and passphrases to config."""
+        global _config, _config_path, _syncer
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            import yaml
+            data = json.loads(body)
+            urls = data.get('share_urls', [])
+            passphrases = data.get('share_passphrases', [])
+            if not isinstance(urls, list) or not isinstance(passphrases, list):
+                raise ValueError('share_urls and share_passphrases must be lists')
+            if len(urls) != len(passphrases):
+                raise ValueError('share_urls and share_passphrases must have the same length')
+
+            # Update in-memory config
+            _config.setdefault('immich', {})
+            _config['immich']['share_urls'] = urls
+            _config['immich']['share_passphrases'] = passphrases
+
+            # Write to YAML
+            with open(_config_path, 'w') as f:
+                yaml.dump(_config, f, default_flow_style=False)
+
+            # Create syncer if it didn't exist before and we now have URLs
+            if _syncer is None and any(urls):
+                from photo_sync import PhotoSyncer
+                _syncer = PhotoSyncer(_config)
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True}).encode())
+            logger.info(f"Immich config saved: {len(urls)} album(s)")
+        except Exception as e:
+            logger.error(f"Error saving Immich config: {e}")
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': False, 'error': str(e)}).encode())
+
     def serve_album_names(self):
         """Resolve and return album names for all configured URLs.
 
-        Returns {synology: {url: name, ...}, google: {url: name, ...}}.
+        Returns {synology: {url: name, ...}, google: {url: name, ...}, immich: {url: name, ...}}.
         Uses an in-memory cache so repeated calls are fast.
         """
         global _config, _album_name_cache
-        from photo_sync import SynologyPhotosClient, GooglePhotosClient
+        from photo_sync import SynologyPhotosClient, GooglePhotosClient, ImmichClient
 
         synology = (_config or {}).get('synology', {})
         google = (_config or {}).get('google_photos', {})
+        immich = (_config or {}).get('immich', {})
 
         syn_urls = synology.get('share_urls', [])
         syn_passes = synology.get('share_passphrases', [])
         gph_urls = google.get('share_urls', [])
+        imm_urls = immich.get('share_urls', [])
+        imm_passes = immich.get('share_passphrases', [])
         local_api = synology.get('local_api_base', 'https://100.101.43.67:5443')
 
-        result = {'synology': {}, 'google': {}}
+        result = {'synology': {}, 'google': {}, 'immich': {}}
 
         # Resolve Synology album names
         for url, pw in zip(syn_urls, syn_passes):
@@ -844,6 +908,20 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                 if name:
                     _album_name_cache[url] = name
                     result['google'][url] = name
+
+        # Resolve Immich album names
+        while len(imm_passes) < len(imm_urls):
+            imm_passes.append('')
+        for url, pw in zip(imm_urls, imm_passes):
+            if not url:
+                continue
+            if url in _album_name_cache:
+                result['immich'][url] = _album_name_cache[url]
+            else:
+                name = ImmichClient.resolve_album_name(url, pw)
+                if name:
+                    _album_name_cache[url] = name
+                    result['immich'][url] = name
 
         content = json.dumps(result).encode('utf-8')
         self.send_response(200)
@@ -961,7 +1039,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                     if _config and _syncer is None:
                         has_synology = any(_config.get('synology', {}).get('share_urls', []))
                         has_google = any(_config.get('google_photos', {}).get('share_urls', []))
-                        if has_synology or has_google:
+                        has_immich = any(_config.get('immich', {}).get('share_urls', []))
+                        if has_synology or has_google or has_immich:
                             from photo_sync import PhotoSyncer
                             _syncer = PhotoSyncer(_config)
                             _syncer.run_sync()
@@ -1083,7 +1162,8 @@ def _init_syncer(config):
     global _syncer
     has_synology = any(config.get('synology', {}).get('share_urls', []))
     has_google = any(config.get('google_photos', {}).get('share_urls', []))
-    if has_synology or has_google:
+    has_immich = any(config.get('immich', {}).get('share_urls', []))
+    if has_synology or has_google or has_immich:
         from photo_sync import PhotoSyncer
         _syncer = PhotoSyncer(config)
         # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)

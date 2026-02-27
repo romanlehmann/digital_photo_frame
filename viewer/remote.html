@@ -146,6 +146,10 @@
     <div id="gph-albums"></div>
     <button class="btn-add" id="r-add-gph" onclick="addGphAlbum()">+ Add Google Album</button>
 
+    <h2 class="section-header" id="r-imm-header">Immich</h2>
+    <div id="imm-albums"></div>
+    <button class="btn-add" id="r-add-imm" onclick="addImmAlbum()">+ Add Immich Album</button>
+
     <div class="btn-row">
         <button class="btn btn-save" id="r-save" onclick="saveConfig()">Save</button>
         <button class="btn btn-sync" id="sync-btn" onclick="triggerSync()">Sync Now</button>
@@ -157,8 +161,8 @@
         var i18n = {
             en: {
                 title: 'FolderSync', subtitle: 'Configure photo sources',
-                synology: 'Synology Photos', google: 'Google Photos',
-                add_syn: '+ Add Synology Album', add_gph: '+ Add Google Album',
+                synology: 'Synology Photos', google: 'Google Photos', immich: 'Immich',
+                add_syn: '+ Add Synology Album', add_gph: '+ Add Google Album', add_imm: '+ Add Immich Album',
                 save: 'Save', sync_now: 'Sync Now',
                 remove: 'Remove', share_url: 'Share URL', passphrase: 'Passphrase',
                 resolving: 'resolving\u2026', new_album: 'new album',
@@ -170,8 +174,8 @@
             },
             de: {
                 title: 'FolderSync', subtitle: 'Fotoquellen konfigurieren',
-                synology: 'Synology Photos', google: 'Google Photos',
-                add_syn: '+ Synology Album', add_gph: '+ Google Album',
+                synology: 'Synology Photos', google: 'Google Photos', immich: 'Immich',
+                add_syn: '+ Synology Album', add_gph: '+ Google Album', add_imm: '+ Immich Album',
                 save: 'Speichern', sync_now: 'Jetzt synchronisieren',
                 remove: 'Entfernen', share_url: 'Freigabe-URL', passphrase: 'Passwort',
                 resolving: 'l\u00f6se auf\u2026', new_album: 'neues Album',
@@ -190,8 +194,10 @@
             document.getElementById('r-subtitle').textContent = t('subtitle');
             document.getElementById('r-syn-header').textContent = t('synology');
             document.getElementById('r-gph-header').textContent = t('google');
+            document.getElementById('r-imm-header').textContent = t('immich');
             document.getElementById('r-add-syn').textContent = t('add_syn');
             document.getElementById('r-add-gph').textContent = t('add_gph');
+            document.getElementById('r-add-imm').textContent = t('add_imm');
             document.getElementById('r-save').textContent = t('save');
             document.getElementById('sync-btn').textContent = t('sync_now');
         }
@@ -199,6 +205,7 @@
 
         var albums = [];
         var gphAlbums = [];
+        var immAlbums = [];
         var syncPollId = null;
 
         function sortByName(arr) {
@@ -218,6 +225,7 @@
         function render() {
             sortByName(albums);
             sortByName(gphAlbums);
+            sortByName(immAlbums);
 
             var container = document.getElementById('albums');
             container.innerHTML = '';
@@ -256,6 +264,27 @@
                         'oninput="gphAlbums[' + i + '].url=this.value">';
                 gphContainer.appendChild(card);
             });
+
+            var immContainer = document.getElementById('imm-albums');
+            immContainer.innerHTML = '';
+            immAlbums.forEach(function(album, i) {
+                var card = document.createElement('div');
+                card.className = 'album-card';
+                card.innerHTML =
+                    '<div class="album-header">' +
+                        albumLabel(album) +
+                        '<button class="remove-btn" onclick="removeImmAlbum(' + i + ')">' + t('remove') + '</button>' +
+                    '</div>' +
+                    '<label>' + t('share_url') + '</label>' +
+                    '<input type="text" placeholder="https://immich.example.com/share/..." ' +
+                        'value="' + escapeAttr(album.url) + '" ' +
+                        'oninput="immAlbums[' + i + '].url=this.value">' +
+                    '<label>' + t('passphrase') + '</label>' +
+                    '<input type="password" placeholder="' + t('empty_passphrase') + '" ' +
+                        'value="' + escapeAttr(album.pass) + '" ' +
+                        'oninput="immAlbums[' + i + '].pass=this.value">';
+                immContainer.appendChild(card);
+            });
         }
 
         function escapeAttr(s) {
@@ -282,6 +311,16 @@
             render();
         }
 
+        function addImmAlbum() {
+            immAlbums.push({ url: '', pass: '' });
+            render();
+        }
+
+        function removeImmAlbum(i) {
+            immAlbums.splice(i, 1);
+            render();
+        }
+
         function showStatus(msg, cls) {
             var bar = document.getElementById('status-bar');
             bar.textContent = msg;
@@ -296,9 +335,11 @@
             var synUrls = albums.map(function(a) { return a.url; });
             var synPasses = albums.map(function(a) { return a.pass; });
             var gphUrls = gphAlbums.map(function(a) { return a.url; });
+            var immUrls = immAlbums.map(function(a) { return a.url; });
+            var immPasses = immAlbums.map(function(a) { return a.pass; });
             showStatus(t('saving'), '');
 
-            // Save both Synology and Google Photos configs
+            // Save Synology, Google Photos, and Immich configs
             Promise.all([
                 fetch('/api/synology', {
                     method: 'POST',
@@ -309,6 +350,11 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ share_urls: gphUrls })
+                }).then(function(r) { return r.json(); }),
+                fetch('/api/immich', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ share_urls: immUrls, share_passphrases: immPasses })
                 }).then(function(r) { return r.json(); })
             ])
             .then(function(results) {
@@ -379,11 +425,15 @@
             .then(function(data) {
                 var synNames = data.synology || {};
                 var gphNames = data.google || {};
+                var immNames = data.immich || {};
                 albums.forEach(function(a) {
                     if (synNames[a.url]) a.name = synNames[a.url];
                 });
                 gphAlbums.forEach(function(a) {
                     if (gphNames[a.url]) a.name = gphNames[a.url];
+                });
+                immAlbums.forEach(function(a) {
+                    if (immNames[a.url]) a.name = immNames[a.url];
                 });
                 render();
             })
@@ -393,11 +443,13 @@
         // Load current config on page load
         Promise.all([
             fetch('/api/synology').then(function(r) { return r.json(); }),
-            fetch('/api/google_photos').then(function(r) { return r.json(); })
+            fetch('/api/google_photos').then(function(r) { return r.json(); }),
+            fetch('/api/immich').then(function(r) { return r.json(); })
         ])
         .then(function(results) {
             var synData = results[0];
             var gphData = results[1];
+            var immData = results[2];
 
             var urls = synData.share_urls || [];
             var passes = synData.share_passphrases || [];
@@ -408,6 +460,12 @@
             var gphUrls = gphData.share_urls || [];
             for (var j = 0; j < gphUrls.length; j++) {
                 gphAlbums.push({ url: gphUrls[j] });
+            }
+
+            var immUrls = immData.share_urls || [];
+            var immPasses = immData.share_passphrases || [];
+            for (var k = 0; k < immUrls.length; k++) {
+                immAlbums.push({ url: immUrls[k], pass: immPasses[k] || '' });
             }
 
             render();
