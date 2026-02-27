@@ -7,4 +7,9 @@
   <keyboard>
     <default />
   </keyboard>
+  <libinput>
+    <device category="touch">
+      <mapToOutput>HDMI-A-1</mapToOutput>
+    </device>
+  </libinput>
 </labwc_config>
