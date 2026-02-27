@@ -392,6 +392,8 @@
             <span class="info-value" id="info-disk">--</span>
             <span class="info-label">Photos:</span>
             <span class="info-value" id="info-photos">--</span>
+            <span class="info-label">Sync:</span>
+            <span class="info-value" id="info-sync">--</span>
         </div>
         <div class="orientation-control">
             <label>Orientation</label>
@@ -603,6 +605,20 @@
                 document.getElementById('info-photos').textContent = info.photo_count || '0';
             } catch (e) {
                 console.error('Failed to load sysinfo:', e);
+            }
+            try {
+                const syncResp = await fetch('/sync/status');
+                const sync = await syncResp.json();
+                let syncText = sync.phase || 'idle';
+                if (sync.running) {
+                    syncText = sync.phase;
+                    if (sync.pending != null) syncText += ` (${sync.pending} left)`;
+                } else if (sync.error) {
+                    syncText = 'error';
+                }
+                document.getElementById('info-sync').textContent = syncText;
+            } catch (e) {
+                document.getElementById('info-sync').textContent = '--';
             }
         }
 

@@ -7,14 +7,28 @@ frame:
   # Which folder to sync: "horizontal" (1920x1200) or "vertical" (1200x1920)
   orientation: "horizontal"
 
-# Sync settings (rsync from NAS)
-sync:
-  nas_host: "nas.local"
-  nas_user: "pi"
-  # Path on the NAS where prepare_photos.py writes output
-  nas_path: "/volume2/docker/frame/frame_photos"
-  # Local path where photos are stored on the Pi
-  local_path: "/srv/frame/photos"
+# Synology Photos API (direct connection via Tailscale)
+synology:
+  local_api_base: "https://100.101.43.67:5443"
+  share_urls:
+    - "https://photos.example.com/mo/sharing/REPLACE_ME"
+  share_passphrases:
+    - ""
+
+# Photo storage and processing
+photos:
+  base_dir: "/srv/frame/photos"
+  state_db: "/srv/frame/photos/state.db"
+  tmp_dir: "/tmp/frame_downloads"
+  horizontal:
+    width: 1920
+    height: 1200
+  vertical:
+    width: 1200
+    height: 1920
+  quality: 85
+  blur_radius: 40
+  blur_darken: 0.6
 
 # Slideshow settings
 slideshow:

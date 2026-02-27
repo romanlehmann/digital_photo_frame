@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 class SysinfoCache:
     """Background cache for system info to avoid slow shell calls on each request."""
 
-    def __init__(self, photos_dir):
-        self.photos_dir = Path(photos_dir)
+    def __init__(self, photos_base_dir):
+        self.photos_base = Path(photos_base_dir)
         self.data = {}
         self._update()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -38,14 +38,18 @@ class SysinfoCache:
         info = {'hostname': socket.gethostname(), 'ips': [], 'tailscale_ip': ''}
         try:
             result = subprocess.run(
-                ['hostname', '-I'], capture_output=True, text=True, timeout=5)
-            info['ips'] = result.stdout.strip().split()
+                ['tailscale', 'ip', '-4'], capture_output=True, text=True, timeout=5)
+            info['tailscale_ip'] = result.stdout.strip()
         except Exception:
             pass
         try:
             result = subprocess.run(
-                ['tailscale', 'ip', '-4'], capture_output=True, text=True, timeout=5)
-            info['tailscale_ip'] = result.stdout.strip()
+                ['hostname', '-I'], capture_output=True, text=True, timeout=5)
+            all_ips = result.stdout.strip().split()
+            # Filter out Tailscale IP and IPv6 addresses
+            ts_ip = info['tailscale_ip']
+            info['ips'] = [ip for ip in all_ips
+                           if ip != ts_ip and ':' not in ip]
         except Exception:
             pass
         try:
@@ -68,8 +72,13 @@ class SysinfoCache:
                 info['disk'] = f"{parts[2]}/{parts[1]} ({parts[4]})"
         except Exception:
             info['disk'] = ''
-        photo_count = len(list(self.photos_dir.glob('*.jpg'))) if self.photos_dir.exists() else 0
-        info['photo_count'] = photo_count
+        h_dir = self.photos_base / 'horizontal'
+        v_dir = self.photos_base / 'vertical'
+        h_count = len(list(h_dir.glob('*.jpg'))) if h_dir.exists() else 0
+        v_count = len(list(v_dir.glob('*.jpg'))) if v_dir.exists() else 0
+        info['h_photos'] = h_count
+        info['v_photos'] = v_count
+        info['photo_count'] = f"H: {h_count} / V: {v_count}"
         self.data = info
 
     def get(self):
@@ -161,6 +170,11 @@ class EnergySaveManager:
                 subprocess.run(['sudo', 'systemctl', 'stop', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
                 logger.info("Sleep: DPMS off + stopped display service")
+                # Trigger photo sync during sleep (cage stopped = more RAM)
+                global _syncer
+                if _syncer:
+                    logger.info("Sleep: triggering photo sync")
+                    _syncer.run_sync()
                 # Start touch-to-wake listener
                 self._wake_event.clear()
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
@@ -249,6 +263,8 @@ class EnergySaveManager:
 _sysinfo_cache = None
 _energy_save = None
 _config_path = None
+_syncer = None
+_config = None
 
 
 class PhotoFrameHandler(SimpleHTTPRequestHandler):
@@ -282,8 +298,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_schedule()
         elif path == '/orientation':
             self.serve_orientation()
+        elif path == '/sync/status':
+            self.serve_sync_status()
         elif path.startswith('/photos/'):
-            # Serve photo file
+            # Serve photo file (supports /photos/horizontal/file.jpg)
             photo_name = path[8:]  # Remove '/photos/' prefix
             self.serve_photo(photo_name)
         else:
@@ -301,6 +319,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_wake()
         elif self.path == '/orientation':
             self.handle_save_orientation()
+        elif self.path == '/sync/trigger':
+            self.handle_sync_trigger()
         else:
             self.send_error(404, "Not found")
     
@@ -334,30 +354,40 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def serve_photos_json(self):
-        """Serve list of photos as JSON."""
+    def _get_orientation(self):
+        """Read current orientation from config."""
+        global _config_path
         try:
-            if not self.photos_dir.exists():
+            import yaml
+            with open(_config_path) as f:
+                cfg = yaml.safe_load(f)
+            return cfg.get('frame', {}).get('orientation', 'horizontal')
+        except Exception:
+            return 'horizontal'
+
+    def serve_photos_json(self):
+        """Serve list of photos as JSON (orientation-aware)."""
+        try:
+            orientation = self._get_orientation()
+            photos_subdir = self.photos_dir / orientation
+
+            if not photos_subdir.exists():
                 photos = []
             else:
-                # Get all image files
-                extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
-                photos = []
-                for ext in extensions:
-                    photos.extend([f'/photos/{p.name}' for p in self.photos_dir.glob(f'*{ext}')])
-                    photos.extend([f'/photos/{p.name}' for p in self.photos_dir.glob(f'*{ext.upper()}')])
-            
+                photos = [f'/photos/{orientation}/{p.name}'
+                          for p in photos_subdir.glob('*.jpg')]
+
             content = json.dumps(photos).encode('utf-8')
-            
+
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Content-Length', len(content))
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             self.wfile.write(content)
-            
-            logger.info(f"Served {len(photos)} photos in JSON")
-            
+
+            logger.info(f"Served {len(photos)} {orientation} photos in JSON")
+
         except Exception as e:
             logger.error(f"Error serving photos JSON: {e}")
             self.send_error(500, str(e))
@@ -554,6 +584,36 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.error(f"Error saving orientation: {e}")
             self.send_error(400, str(e))
 
+    def serve_sync_status(self):
+        """Serve photo sync status as JSON."""
+        global _syncer
+        if _syncer:
+            data = _syncer.get_status()
+        else:
+            data = {'running': False, 'phase': 'disabled', 'error': 'syncer not initialized'}
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_sync_trigger(self):
+        """Trigger a manual photo sync."""
+        global _syncer
+        if _syncer:
+            _syncer.run_sync()
+            data = {'ok': True, 'message': 'Sync started'}
+        else:
+            data = {'ok': False, 'message': 'Syncer not initialized'}
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
     def handle_reboot(self):
         """Handle reboot request."""
         logger.warning("Reboot requested via HTTP")
@@ -590,7 +650,8 @@ def main():
     """Main entry point."""
     import sys
     import yaml
-    
+    from photo_sync import PhotoSyncer
+
     # Load config
     config_path = sys.argv[1] if len(sys.argv) > 1 else 'config_frame.yaml'
 
@@ -598,32 +659,46 @@ def main():
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
 
-        photos_dir = config.get('sync', {}).get('local_path', '/srv/frame/photos')
+        photos_config = config.get('photos', {})
+        photos_dir = photos_config.get('base_dir', '/srv/frame/photos')
         viewer_dir = str(Path(__file__).parent / 'viewer')
         port = int(os.environ.get('PORT', 8080))
-        
+
         # Ensure directories exist
         Path(photos_dir).mkdir(parents=True, exist_ok=True)
-        
+        (Path(photos_dir) / 'horizontal').mkdir(parents=True, exist_ok=True)
+        (Path(photos_dir) / 'vertical').mkdir(parents=True, exist_ok=True)
+
         slideshow_config = config.get('slideshow', {})
 
         # Start background services
-        global _sysinfo_cache, _energy_save, _config_path
+        global _sysinfo_cache, _energy_save, _config_path, _syncer, _config
         _config_path = config_path
+        _config = config
         _sysinfo_cache = SysinfoCache(photos_dir)
         _energy_save = EnergySaveManager()
+
+        # Initialize photo syncer (if synology config is present)
+        if config.get('synology', {}).get('share_urls'):
+            _syncer = PhotoSyncer(config)
+            # Boot sync: 15s after startup to let the system settle
+            def boot_sync():
+                time.sleep(15)
+                logger.info("Boot sync: triggering initial photo sync")
+                _syncer.run_sync()
+            threading.Thread(target=boot_sync, daemon=True).start()
 
         handler = create_handler(photos_dir, viewer_dir, slideshow_config)
         HTTPServer.allow_reuse_address = True
         server = HTTPServer(('0.0.0.0', port), handler)
-        
+
         logger.info(f"Starting photo frame server on port {port}")
         logger.info(f"Photos directory: {photos_dir}")
         logger.info(f"Viewer directory: {viewer_dir}")
         logger.info(f"Open http://localhost:{port}/ to view")
-        
+
         server.serve_forever()
-        
+
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
     except Exception as e:
