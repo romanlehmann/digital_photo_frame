@@ -180,12 +180,14 @@ class EnergySaveManager:
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
-                # Restore monitor from standby via DDC/CI
-                subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '1'],
-                             capture_output=True, timeout=10)
-                # Start cage — takes over framebuffer, resumes slideshow
+                # Start cage first (Chromium needs time to render)
                 subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
+                # Wait for Chromium to render the slideshow before turning on display
+                time.sleep(5)
+                # Restore monitor from DDC/CI standby
+                subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '1'],
+                             capture_output=True, timeout=10)
                 self.sleeping = False
                 logger.info("Wake: started display service")
         except Exception as e:
