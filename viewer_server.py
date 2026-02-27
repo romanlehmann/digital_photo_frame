@@ -519,7 +519,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.wfile.write(content)
 
     def handle_save_orientation(self):
-        """Save orientation setting and rotate display via wlr-randr."""
+        """Save orientation setting and restart cage to apply rotation."""
         global _config_path
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
@@ -532,28 +532,24 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
             with open(_config_path) as f:
                 cfg = yaml.safe_load(f)
+            old_orientation = cfg.get('frame', {}).get('orientation', 'horizontal')
             cfg.setdefault('frame', {})['orientation'] = new_orientation
             with open(_config_path, 'w') as f:
                 yaml.dump(cfg, f, default_flow_style=False)
-
-            # Rotate display using wlr-randr (runs inside cage/labwc Wayland session)
-            transform = '90' if new_orientation == 'vertical' else 'normal'
-            try:
-                result = subprocess.run(
-                    ['sudo', '-u', 'robert', 'env',
-                     'WAYLAND_DISPLAY=wayland-0',
-                     'XDG_RUNTIME_DIR=/tmp/frame-runtime',
-                     'wlr-randr', '--output', 'HDMI-A-1', '--transform', transform],
-                    capture_output=True, text=True, timeout=10)
-                if result.returncode != 0:
-                    logger.warning(f"wlr-randr failed: {result.stderr}")
-            except Exception as e:
-                logger.warning(f"Display rotation error: {e}")
 
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({'ok': True}).encode())
+
+            # Restart cage to apply rotation (autostart reads config)
+            if new_orientation != old_orientation:
+                def restart_cage():
+                    time.sleep(1)
+                    subprocess.run(['sudo', 'systemctl', 'restart', 'photo_frame_cage'],
+                                 capture_output=True, timeout=15)
+                    logger.info(f"Orientation changed to {new_orientation}, restarted cage")
+                threading.Thread(target=restart_cage, daemon=True).start()
         except Exception as e:
             logger.error(f"Error saving orientation: {e}")
             self.send_error(400, str(e))

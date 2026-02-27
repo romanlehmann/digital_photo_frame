@@ -1,3 +1,15 @@
+# Apply display rotation from config
+ORIENTATION=$(python3 -c "
+import yaml
+try:
+    with open('/home/robert/digital_photo_frame/config_frame.yaml') as f:
+        print(yaml.safe_load(f).get('frame',{}).get('orientation','horizontal'))
+except: print('horizontal')
+" 2>/dev/null)
+if [ "$ORIENTATION" = "vertical" ]; then
+    wlr-randr --output HDMI-A-1 --transform 90
+fi
+
 /usr/lib/chromium/chromium \
     --kiosk \
     --noerrdialogs \
