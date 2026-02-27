@@ -1043,7 +1043,6 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                         if has_synology or has_google or has_immich:
                             from photo_sync import PhotoSyncer
                             _syncer = PhotoSyncer(_config)
-                            _syncer.run_sync()
                 else:
                     logger.warning(f"WiFi connect failed: {message}")
 
@@ -1158,7 +1157,7 @@ def main():
 
 
 def _init_syncer(config):
-    """Initialize the photo syncer if sources are configured, with boot sync delay."""
+    """Initialize the photo syncer if sources are configured (no auto-sync)."""
     global _syncer
     has_synology = any(config.get('synology', {}).get('share_urls', []))
     has_google = any(config.get('google_photos', {}).get('share_urls', []))
@@ -1166,12 +1165,6 @@ def _init_syncer(config):
     if has_synology or has_google or has_immich:
         from photo_sync import PhotoSyncer
         _syncer = PhotoSyncer(config)
-        # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)
-        def boot_sync():
-            time.sleep(60)
-            logger.info("Boot sync: triggering initial photo sync")
-            _syncer.run_sync()
-        threading.Thread(target=boot_sync, daemon=True).start()
 
 
 if __name__ == '__main__':

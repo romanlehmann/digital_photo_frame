@@ -40,6 +40,11 @@ usermod -aG video,input,render,netdev,i2c "${FRAME_USER}"
 # ---- Photos directory ----
 echo "Creating photos directory..."
 mkdir -p "${PHOTOS_DIR}/horizontal" "${PHOTOS_DIR}/vertical"
+# Copy default placeholder images so the frame has something to show immediately
+if [ -d "${REPO_DIR}/viewer/defaults/horizontal" ]; then
+    cp "${REPO_DIR}/viewer/defaults/horizontal/"*.jpg "${PHOTOS_DIR}/horizontal/" 2>/dev/null || true
+    cp "${REPO_DIR}/viewer/defaults/vertical/"*.jpg "${PHOTOS_DIR}/vertical/" 2>/dev/null || true
+fi
 chown -R "${FRAME_USER}:${FRAME_USER}" "${PHOTOS_DIR}"
 
 # ---- Python venv ----
