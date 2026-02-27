@@ -470,7 +470,7 @@ class PhotoSyncer:
         self._stop_event.set()
 
     def get_status(self) -> dict:
-        """Return current sync status."""
+        """Return current sync status, including pending count from DB when idle."""
         with self._lock:
             photos_config = self._config.get('photos', {})
             base_dir = Path(photos_config.get('base_dir', '/srv/frame/photos'))
@@ -486,6 +486,20 @@ class PhotoSyncer:
                 'error': self._last_error,
             }
             status.update(self._progress)
+
+            # When idle, query DB for pending count so settings always shows the queue
+            if not self._running and 'pending' not in status:
+                try:
+                    db_path = photos_config.get('state_db', str(base_dir / 'state.db'))
+                    if Path(db_path).exists():
+                        db = PhotoDatabase(db_path)
+                        counts = db.get_counts()
+                        status['pending'] = counts.get('pending', 0)
+                        status['total'] = counts.get('total', 0)
+                        db.close()
+                except Exception:
+                    pass
+
             return status
 
     def _sync_worker(self):
@@ -576,15 +590,23 @@ class PhotoSyncer:
             self._set_phase('downloading')
             undownloaded = db.get_undownloaded()
             total = len(undownloaded)
+            batch_size = photos_config.get('batch_size', 50)
             downloaded = 0
             processed = 0
             t_start = time.time()
+
+            if total > batch_size:
+                logger.info(f"Batch limit: processing {batch_size} of {total} pending photos")
 
             self._progress = {'total': len(all_items), 'pending': total, 'downloaded': 0}
 
             for idx, item in enumerate(undownloaded):
                 if self._stop_event.is_set():
                     logger.info("Sync stopped by request")
+                    break
+
+                if processed >= batch_size:
+                    logger.info(f"Batch limit reached ({batch_size}), stopping for this run")
                     break
 
                 item_id = item['item_id']
