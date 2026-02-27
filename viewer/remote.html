@@ -135,25 +135,68 @@
     </style>
 </head>
 <body>
-    <h1>FolderSync</h1>
-    <div class="subtitle">Configure photo sources</div>
+    <h1 id="r-title">FolderSync</h1>
+    <div class="subtitle" id="r-subtitle">Configure photo sources</div>
 
-    <h2 class="section-header">Synology Photos</h2>
+    <h2 class="section-header" id="r-syn-header">Synology Photos</h2>
     <div id="albums"></div>
-    <button class="btn-add" onclick="addAlbum()">+ Add Synology Album</button>
+    <button class="btn-add" id="r-add-syn" onclick="addAlbum()">+ Add Synology Album</button>
 
-    <h2 class="section-header">Google Photos</h2>
+    <h2 class="section-header" id="r-gph-header">Google Photos</h2>
     <div id="gph-albums"></div>
-    <button class="btn-add" onclick="addGphAlbum()">+ Add Google Album</button>
+    <button class="btn-add" id="r-add-gph" onclick="addGphAlbum()">+ Add Google Album</button>
 
     <div class="btn-row">
-        <button class="btn btn-save" onclick="saveConfig()">Save</button>
+        <button class="btn btn-save" id="r-save" onclick="saveConfig()">Save</button>
         <button class="btn btn-sync" id="sync-btn" onclick="triggerSync()">Sync Now</button>
     </div>
 
     <div id="status-bar"></div>
 
     <script>
+        var i18n = {
+            en: {
+                title: 'FolderSync', subtitle: 'Configure photo sources',
+                synology: 'Synology Photos', google: 'Google Photos',
+                add_syn: '+ Add Synology Album', add_gph: '+ Add Google Album',
+                save: 'Save', sync_now: 'Sync Now',
+                remove: 'Remove', share_url: 'Share URL', passphrase: 'Passphrase',
+                resolving: 'resolving\u2026', new_album: 'new album',
+                saving: 'Saving...', saved: 'Saved', error: 'Error: ',
+                network_error: 'Network error', starting_sync: 'Starting sync...',
+                sync_error: 'Sync error: ', sync_complete: 'Sync complete \u2014 ',
+                photos: ' photos', left: ' left', lost_connection: 'Lost connection',
+                empty_passphrase: '(leave empty if none)',
+            },
+            de: {
+                title: 'FolderSync', subtitle: 'Fotoquellen konfigurieren',
+                synology: 'Synology Photos', google: 'Google Photos',
+                add_syn: '+ Synology Album', add_gph: '+ Google Album',
+                save: 'Speichern', sync_now: 'Jetzt synchronisieren',
+                remove: 'Entfernen', share_url: 'Freigabe-URL', passphrase: 'Passwort',
+                resolving: 'l\u00f6se auf\u2026', new_album: 'neues Album',
+                saving: 'Speichere...', saved: 'Gespeichert', error: 'Fehler: ',
+                network_error: 'Netzwerkfehler', starting_sync: 'Starte Sync...',
+                sync_error: 'Sync-Fehler: ', sync_complete: 'Sync abgeschlossen \u2014 ',
+                photos: ' Fotos', left: ' \u00fcbrig', lost_connection: 'Verbindung verloren',
+                empty_passphrase: '(leer lassen wenn keins)',
+            }
+        };
+        var lang = localStorage.getItem('frame-language') || 'en';
+        function t(k) { return (i18n[lang] || i18n.en)[k] || k; }
+
+        function applyLang() {
+            document.getElementById('r-title').textContent = t('title');
+            document.getElementById('r-subtitle').textContent = t('subtitle');
+            document.getElementById('r-syn-header').textContent = t('synology');
+            document.getElementById('r-gph-header').textContent = t('google');
+            document.getElementById('r-add-syn').textContent = t('add_syn');
+            document.getElementById('r-add-gph').textContent = t('add_gph');
+            document.getElementById('r-save').textContent = t('save');
+            document.getElementById('sync-btn').textContent = t('sync_now');
+        }
+        applyLang();
+
         var albums = [];
         var gphAlbums = [];
         var syncPollId = null;
@@ -168,8 +211,8 @@
 
         function albumLabel(album) {
             if (album.name) return '<span class="album-name">' + escapeAttr(album.name) + '</span>';
-            if (album.url) return '<span class="album-name album-name-loading">resolving\u2026</span>';
-            return '<span class="album-name album-name-loading">new album</span>';
+            if (album.url) return '<span class="album-name album-name-loading">' + t('resolving') + '</span>';
+            return '<span class="album-name album-name-loading">' + t('new_album') + '</span>';
         }
 
         function render() {
@@ -184,14 +227,14 @@
                 card.innerHTML =
                     '<div class="album-header">' +
                         albumLabel(album) +
-                        '<button class="remove-btn" onclick="removeAlbum(' + i + ')">Remove</button>' +
+                        '<button class="remove-btn" onclick="removeAlbum(' + i + ')">' + t('remove') + '</button>' +
                     '</div>' +
-                    '<label>Share URL</label>' +
+                    '<label>' + t('share_url') + '</label>' +
                     '<input type="text" placeholder="https://photos.example.com/mo/sharing/..." ' +
                         'value="' + escapeAttr(album.url) + '" ' +
                         'oninput="albums[' + i + '].url=this.value">' +
-                    '<label>Passphrase</label>' +
-                    '<input type="password" placeholder="(leave empty if none)" ' +
+                    '<label>' + t('passphrase') + '</label>' +
+                    '<input type="password" placeholder="' + t('empty_passphrase') + '" ' +
                         'value="' + escapeAttr(album.pass) + '" ' +
                         'oninput="albums[' + i + '].pass=this.value">';
                 container.appendChild(card);
@@ -205,9 +248,9 @@
                 card.innerHTML =
                     '<div class="album-header">' +
                         albumLabel(album) +
-                        '<button class="remove-btn" onclick="removeGphAlbum(' + i + ')">Remove</button>' +
+                        '<button class="remove-btn" onclick="removeGphAlbum(' + i + ')">' + t('remove') + '</button>' +
                     '</div>' +
-                    '<label>Share URL</label>' +
+                    '<label>' + t('share_url') + '</label>' +
                     '<input type="text" placeholder="https://photos.app.goo.gl/..." ' +
                         'value="' + escapeAttr(album.url) + '" ' +
                         'oninput="gphAlbums[' + i + '].url=this.value">';
@@ -253,7 +296,7 @@
             var synUrls = albums.map(function(a) { return a.url; });
             var synPasses = albums.map(function(a) { return a.pass; });
             var gphUrls = gphAlbums.map(function(a) { return a.url; });
-            showStatus('Saving...', '');
+            showStatus(t('saving'), '');
 
             // Save both Synology and Google Photos configs
             Promise.all([
@@ -271,32 +314,32 @@
             .then(function(results) {
                 var allOk = results.every(function(d) { return d.ok; });
                 if (allOk) {
-                    showStatus('Saved', 'success');
+                    showStatus(t('saved'), 'success');
                     setTimeout(hideStatus, 2000);
                 } else {
                     var errs = results.filter(function(d) { return !d.ok; })
                         .map(function(d) { return d.error || 'unknown'; });
-                    showStatus('Error: ' + errs.join(', '), 'error');
+                    showStatus(t('error') + errs.join(', '), 'error');
                 }
             })
             .catch(function(e) {
-                showStatus('Network error', 'error');
+                showStatus(t('network_error'), 'error');
             });
         }
 
         function triggerSync() {
-            showStatus('Starting sync...', 'syncing');
+            showStatus(t('starting_sync'), 'syncing');
             fetch('/sync/trigger', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.ok) {
                     pollSyncStatus();
                 } else {
-                    showStatus(data.message || 'Sync failed to start', 'error');
+                    showStatus(data.message || t('network_error'), 'error');
                 }
             })
             .catch(function(e) {
-                showStatus('Network error', 'error');
+                showStatus(t('network_error'), 'error');
             });
         }
 
@@ -308,16 +351,16 @@
                 .then(function(s) {
                     if (s.running) {
                         var msg = s.phase || 'syncing';
-                        if (s.pending != null) msg += ' (' + s.pending + ' left)';
+                        if (s.pending != null) msg += ' (' + s.pending + t('left') + ')';
                         showStatus(msg, 'syncing');
                     } else {
                         clearInterval(syncPollId);
                         syncPollId = null;
                         if (s.error) {
-                            showStatus('Sync error: ' + s.error, 'error');
+                            showStatus(t('sync_error') + s.error, 'error');
                         } else {
                             var count = (s.h_photos || 0) + (s.v_photos || 0);
-                            showStatus('Sync complete — ' + count + ' photos', 'success');
+                            showStatus(t('sync_complete') + count + t('photos'), 'success');
                             setTimeout(hideStatus, 4000);
                         }
                     }
@@ -325,7 +368,7 @@
                 .catch(function() {
                     clearInterval(syncPollId);
                     syncPollId = null;
-                    showStatus('Lost connection', 'error');
+                    showStatus(t('lost_connection'), 'error');
                 });
             }, 3000);
         }

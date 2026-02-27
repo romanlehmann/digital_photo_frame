@@ -410,7 +410,7 @@
     </style>
 </head>
 <body>
-    <div id="loading">Loading photos...</div>
+    <div id="loading"></div>
     <div id="error"></div>
     <div id="slideshow"></div>
     <div id="sleep-overlay"></div>
@@ -440,6 +440,11 @@
             <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
             <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
             <span class="save-msg" id="orient-saved">Saved</span>
+        </div>
+        <div class="orientation-control">
+            <label id="lang-label">Language</label>
+            <button class="orient-btn" id="lang-en" onclick="setLanguage('en')">EN</button>
+            <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">DE</button>
         </div>
         <div class="brightness-control">
             <label>Brightness</label>
@@ -495,6 +500,116 @@
     <div id="hot-corner-progress"></div>
 
     <script>
+        // --- i18n ---
+        const translations = {
+            en: {
+                settings: 'Settings',
+                hostname: 'Hostname:',
+                ip: 'IP:',
+                tailscale: 'Tailscale:',
+                wifi: 'WiFi:',
+                cpu_temp: 'CPU Temp:',
+                disk: 'Disk:',
+                photos: 'Photos:',
+                sync: 'Sync:',
+                language: 'Language',
+                orientation: 'Orientation',
+                horizontal: 'Horizontal',
+                vertical: 'Vertical',
+                brightness: 'Brightness',
+                auto: 'Auto',
+                sleep: 'Sleep',
+                foldersync: 'FolderSync',
+                close: 'Close',
+                reboot: 'Reboot',
+                shutdown: 'Shutdown',
+                saved: 'Saved',
+                scan_to_configure: 'Scan to Configure',
+                loading: 'Loading photos...',
+                waiting: 'Waiting for photos (sync may be running)...',
+                wifi_setup_required: 'WiFi Setup Required',
+                connect_to: 'Connect to:',
+                password: 'Password:',
+                open_setup: 'Then open the setup page on your phone',
+                not_connected: 'Not connected',
+                confirm_shutdown: 'Shutdown Raspberry Pi?',
+                confirm_reboot: 'Reboot Raspberry Pi?',
+                shutting_down: 'Shutting down...',
+                rebooting: 'Rebooting...',
+            },
+            de: {
+                settings: 'Einstellungen',
+                hostname: 'Hostname:',
+                ip: 'IP:',
+                tailscale: 'Tailscale:',
+                wifi: 'WLAN:',
+                cpu_temp: 'CPU Temp:',
+                disk: 'Speicher:',
+                photos: 'Fotos:',
+                sync: 'Sync:',
+                language: 'Sprache',
+                orientation: 'Ausrichtung',
+                horizontal: 'Horizontal',
+                vertical: 'Vertikal',
+                brightness: 'Helligkeit',
+                auto: 'Auto',
+                sleep: 'Schlaf',
+                foldersync: 'FolderSync',
+                close: 'Schlie\u00dfen',
+                reboot: 'Neustart',
+                shutdown: 'Ausschalten',
+                saved: 'Gespeichert',
+                scan_to_configure: 'Scannen zum Konfigurieren',
+                loading: 'Lade Fotos...',
+                waiting: 'Warte auf Fotos (Sync l\u00e4uft evtl.)...',
+                wifi_setup_required: 'WLAN-Einrichtung erforderlich',
+                connect_to: 'Verbinde mit:',
+                password: 'Passwort:',
+                open_setup: 'Dann die Einrichtungsseite auf dem Handy \u00f6ffnen',
+                not_connected: 'Nicht verbunden',
+                confirm_shutdown: 'Raspberry Pi ausschalten?',
+                confirm_reboot: 'Raspberry Pi neustarten?',
+                shutting_down: 'Wird ausgeschaltet...',
+                rebooting: 'Neustart...',
+            }
+        };
+        let lang = localStorage.getItem('frame-language') || 'en';
+        function t(key) { return (translations[lang] || translations.en)[key] || key; }
+
+        function setLanguage(l) {
+            lang = l;
+            localStorage.setItem('frame-language', l);
+            applyLanguage();
+        }
+
+        function applyLanguage() {
+            // Settings overlay labels
+            document.querySelector('#settings-overlay > h1').textContent = t('settings');
+            var labels = document.querySelectorAll('#settings-overlay .info-label');
+            var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
+            labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
+            document.querySelector('.orientation-control > label').textContent = t('orientation');
+            document.getElementById('orient-h').textContent = t('horizontal');
+            document.getElementById('orient-v').textContent = t('vertical');
+            document.getElementById('orient-saved').textContent = t('saved');
+            document.querySelector('.brightness-control > label').textContent = t('brightness');
+            document.getElementById('auto-brightness-btn').textContent = t('auto');
+            document.getElementById('schedule-btn').textContent = t('sleep');
+            document.querySelector('#lang-label').textContent = t('language');
+            // Buttons
+            var btns = document.querySelectorAll('.settings-buttons .settings-btn');
+            btns[0].textContent = t('foldersync');
+            btns[1].textContent = t('close');
+            btns[2].textContent = t('reboot');
+            btns[3].textContent = t('shutdown');
+            // QR overlay
+            document.querySelector('#qr-overlay > h1').textContent = t('scan_to_configure');
+            document.querySelector('#qr-overlay .settings-btn').textContent = t('close');
+            // Language buttons
+            document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+            document.getElementById('lang-de').classList.toggle('active', lang === 'de');
+        }
+
         // Configuration (loaded from server /config endpoint)
         let config = {
             interval: 300000,         // default 5 min (ms)
@@ -632,6 +747,8 @@
             // Pause slideshow
             if (intervalId) clearInterval(intervalId);
 
+            applyLanguage();
+
             // Sync brightness slider and auto button
             const currentBrightness = localStorage.getItem('frame-brightness') || '100';
             document.getElementById('brightness-slider').value = currentBrightness;
@@ -646,7 +763,7 @@
                 document.getElementById('info-hostname').textContent = info.hostname || '--';
                 document.getElementById('info-ip').textContent = (info.ips || []).join(', ') || '--';
                 document.getElementById('info-tailscale').textContent = info.tailscale_ip || '--';
-                document.getElementById('info-wifi').textContent = info.wifi_ssid || 'Not connected';
+                document.getElementById('info-wifi').textContent = info.wifi_ssid || t('not_connected');
                 document.getElementById('info-temp').textContent = info.cpu_temp != null ? info.cpu_temp + ' C' : '--';
                 document.getElementById('info-disk').textContent = info.disk || '--';
                 document.getElementById('info-photos').textContent = info.photo_count || '0';
@@ -686,10 +803,10 @@
         }
 
         async function doShutdown() {
-            if (confirm('Shutdown Raspberry Pi?')) {
+            if (confirm(t('confirm_shutdown'))) {
                 await fetch('/shutdown', {method: 'POST'});
                 document.getElementById('settings-overlay').innerHTML =
-                    '<h1 style="color:#f66">Shutting down...</h1>';
+                    '<h1 style="color:#f66">' + t('shutting_down') + '</h1>';
             }
         }
 
@@ -800,10 +917,10 @@
         }
 
         async function doReboot() {
-            if (confirm('Reboot Raspberry Pi?')) {
+            if (confirm(t('confirm_reboot'))) {
                 await fetch('/reboot', {method: 'POST'});
                 document.getElementById('settings-overlay').innerHTML =
-                    '<h1 style="color:#6af">Rebooting...</h1>';
+                    '<h1 style="color:#6af">' + t('rebooting') + '</h1>';
             }
         }
 
@@ -839,12 +956,12 @@
                             if (wifi.mode === 'hotspot') {
                                 document.getElementById('loading').innerHTML =
                                     '<div style="text-align:center;line-height:1.8">' +
-                                    '<div style="font-size:32px;margin-bottom:20px">WiFi Setup Required</div>' +
-                                    '<div style="font-size:24px;color:#aaa">Connect to:</div>' +
+                                    '<div style="font-size:32px;margin-bottom:20px">' + t('wifi_setup_required') + '</div>' +
+                                    '<div style="font-size:24px;color:#aaa">' + t('connect_to') + '</div>' +
                                     '<div style="font-size:28px;color:#6af;margin:8px 0">' + (wifi.hotspot_ssid || 'PhotoFrame-Setup') + '</div>' +
-                                    '<div style="font-size:24px;color:#aaa">Password:</div>' +
+                                    '<div style="font-size:24px;color:#aaa">' + t('password') + '</div>' +
                                     '<div style="font-size:28px;color:#6af;margin:8px 0">' + (wifi.hotspot_password || 'photoframe') + '</div>' +
-                                    '<div style="font-size:18px;color:#666;margin-top:20px">Then open the setup page on your phone</div>' +
+                                    '<div style="font-size:18px;color:#666;margin-top:20px">' + t('open_setup') + '</div>' +
                                     '</div>';
                                 setTimeout(init, 15000);
                                 return;
@@ -852,7 +969,7 @@
                         }
                     } catch (e) {}
                     // Normal mode: waiting for photos
-                    document.getElementById('loading').textContent = 'Waiting for photos (sync may be running)...';
+                    document.getElementById('loading').textContent = t('waiting');
                     setTimeout(init, 10000);
                     return;
                 }
@@ -1115,6 +1232,7 @@
         }
 
         // Initialize
+        document.getElementById('loading').textContent = t('loading');
         init();
     </script>
 </body>

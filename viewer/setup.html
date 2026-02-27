@@ -171,15 +171,63 @@
     </style>
 </head>
 <body>
-    <h1>WiFi Setup</h1>
-    <div class="subtitle">Select a network to connect your photo frame</div>
+    <h1 id="title">WiFi Setup</h1>
+    <div class="subtitle" id="subtitle">Select a network to connect your photo frame</div>
 
     <div id="networks"></div>
-    <button class="btn-rescan" onclick="scanNetworks()">Rescan</button>
+    <button class="btn-rescan" id="btn-rescan" onclick="scanNetworks()">Rescan</button>
 
     <div id="status-bar"></div>
 
     <script>
+        var i18n = {
+            en: {
+                title: 'WiFi Setup',
+                subtitle: 'Select a network to connect your photo frame',
+                rescan: 'Rescan',
+                connect_to: 'Connect to',
+                wifi_password: 'WiFi password',
+                connect: 'Connect',
+                cancel: 'Cancel',
+                scanning: 'Scanning for networks...',
+                scanning_status: 'Scanning...',
+                scan_failed: 'Scan failed',
+                signal: '% signal',
+                connecting_to: 'Connecting to ',
+                connected_ok: 'Connected! The frame will start showing photos. You can close this page and reconnect to your home WiFi.',
+                failed: 'Failed: ',
+                try_again: '. Try again.',
+                connecting_lost: 'Connecting... the hotspot will shut down. Reconnect to your home WiFi to check if the frame is working.',
+            },
+            de: {
+                title: 'WLAN-Einrichtung',
+                subtitle: 'W\u00e4hle ein Netzwerk f\u00fcr den Bilderrahmen',
+                rescan: 'Erneut suchen',
+                connect_to: 'Verbinden mit',
+                wifi_password: 'WLAN-Passwort',
+                connect: 'Verbinden',
+                cancel: 'Abbrechen',
+                scanning: 'Suche Netzwerke...',
+                scanning_status: 'Suche...',
+                scan_failed: 'Suche fehlgeschlagen',
+                signal: '% Signal',
+                connecting_to: 'Verbinde mit ',
+                connected_ok: 'Verbunden! Der Bilderrahmen zeigt bald Fotos. Du kannst diese Seite schlie\u00dfen und dich wieder mit deinem WLAN verbinden.',
+                failed: 'Fehler: ',
+                try_again: '. Erneut versuchen.',
+                connecting_lost: 'Verbinde... der Hotspot wird beendet. Verbinde dich mit deinem WLAN und pr\u00fcfe ob der Rahmen funktioniert.',
+            }
+        };
+        var lang = localStorage.getItem('frame-language') || 'en';
+        function t(k) { return (i18n[lang] || i18n.en)[k] || k; }
+
+        function applyLang() {
+            document.getElementById('title').textContent = t('title');
+            document.getElementById('subtitle').textContent = t('subtitle');
+            document.getElementById('btn-rescan').textContent = t('rescan');
+        }
+        applyLang();
+
         var networks = [];
         var selectedSSID = null;
         var connecting = false;
@@ -203,7 +251,7 @@
             var container = document.getElementById('networks');
 
             if (networks.length === 0 && !connecting) {
-                container.innerHTML = '<div class="empty-state">Scanning for networks...</div>';
+                container.innerHTML = '<div class="empty-state">' + t('scanning') + '</div>';
                 return;
             }
 
@@ -213,20 +261,20 @@
 
                 if (selectedSSID === n.ssid) {
                     html += '<div class="password-form">' +
-                        '<div class="pw-label">Connect to</div>' +
+                        '<div class="pw-label">' + t('connect_to') + '</div>' +
                         '<div class="pw-ssid">' + escapeHtml(n.ssid) + '</div>';
                     if (n.secured) {
-                        html += '<input type="password" id="wifi-password" placeholder="WiFi password" autocomplete="off">';
+                        html += '<input type="password" id="wifi-password" placeholder="' + t('wifi_password') + '" autocomplete="off">';
                     }
-                    html += '<button class="btn btn-connect" onclick="doConnect()">Connect</button>' +
-                        '<button class="btn btn-cancel" onclick="cancelSelect()">Cancel</button>' +
+                    html += '<button class="btn btn-connect" onclick="doConnect()">' + t('connect') + '</button>' +
+                        '<button class="btn btn-cancel" onclick="cancelSelect()">' + t('cancel') + '</button>' +
                         '</div>';
                 } else {
                     html += '<div class="network-card" onclick="selectNetwork(\'' + escapeHtml(n.ssid).replace(/'/g, "\\'") + '\')">' +
                         '<div class="signal-icon">' + signalBars(n.signal) + '</div>' +
                         '<div class="network-info">' +
                             '<div class="network-ssid">' + escapeHtml(n.ssid) + '</div>' +
-                            '<div class="network-detail">' + (n.signal || 0) + '% signal</div>' +
+                            '<div class="network-detail">' + (n.signal || 0) + t('signal') + '</div>' +
                         '</div>' +
                         (n.secured ? '<span class="lock-icon">&#128274;</span>' : '') +
                         '</div>';
@@ -267,7 +315,7 @@
             var password = pwField ? pwField.value : '';
 
             connecting = true;
-            showStatus('<span class="spinner"></span>Connecting to ' + escapeHtml(ssid) + '...', 'connecting');
+            showStatus('<span class="spinner"></span>' + t('connecting_to') + escapeHtml(ssid) + '...', 'connecting');
 
             fetch('/api/wifi/connect', {
                 method: 'POST',
@@ -278,23 +326,23 @@
             .then(function(data) {
                 connecting = false;
                 if (data.ok) {
-                    showStatus('Connected! The frame will start showing photos. You can close this page and reconnect to your home WiFi.', 'success');
+                    showStatus(t('connected_ok'), 'success');
                     selectedSSID = null;
                     render();
                 } else {
-                    showStatus('Failed: ' + (data.message || 'Unknown error') + '. Try again.', 'error');
+                    showStatus(t('failed') + (data.message || 'Unknown error') + t('try_again'), 'error');
                     render();
                 }
             })
             .catch(function(e) {
                 // Expected: phone loses connection when hotspot drops
                 connecting = false;
-                showStatus('Connecting... the hotspot will shut down. Reconnect to your home WiFi to check if the frame is working.', 'connecting');
+                showStatus(t('connecting_lost'), 'connecting');
             });
         }
 
         function scanNetworks() {
-            showStatus('<span class="spinner"></span>Scanning...', 'connecting');
+            showStatus('<span class="spinner"></span>' + t('scanning_status'), 'connecting');
             fetch('/api/wifi/scan', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -304,7 +352,7 @@
                 render();
             })
             .catch(function(e) {
-                showStatus('Scan failed', 'error');
+                showStatus(t('scan_failed'), 'error');
             });
         }
 
