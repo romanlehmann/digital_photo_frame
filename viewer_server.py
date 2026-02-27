@@ -816,9 +816,9 @@ def main():
         # Initialize photo syncer (if synology config is present)
         if config.get('synology', {}).get('share_urls'):
             _syncer = PhotoSyncer(config)
-            # Boot sync: 15s after startup to let the system settle
+            # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)
             def boot_sync():
-                time.sleep(15)
+                time.sleep(60)
                 logger.info("Boot sync: triggering initial photo sync")
                 _syncer.run_sync()
             threading.Thread(target=boot_sync, daemon=True).start()
