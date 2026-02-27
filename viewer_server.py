@@ -344,6 +344,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_orientation()
         elif self.path == '/sync/trigger':
             self.handle_sync_trigger()
+        elif self.path == '/api/interval':
+            self.handle_save_interval()
         elif self.path == '/api/synology':
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
@@ -591,6 +593,34 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', len(content))
         self.end_headers()
         self.wfile.write(content)
+
+    def handle_save_interval(self):
+        """Save slideshow interval to config and update in-memory config."""
+        global _config_path
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            import yaml
+            data = json.loads(body)
+            interval = int(data.get('interval', 300))
+            if interval < 5:
+                interval = 5
+            if interval > 3600:
+                interval = 3600
+
+            with open(_config_path) as f:
+                cfg = yaml.safe_load(f)
+            cfg.setdefault('slideshow', {})['interval'] = interval
+            with open(_config_path, 'w') as f:
+                yaml.dump(cfg, f, default_flow_style=False)
+
+            # Update in-memory slideshow config
+            self.slideshow_config['interval'] = interval
+
+            self._json_response({'ok': True, 'interval': interval})
+        except Exception as e:
+            logger.error(f"Failed to save interval: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_save_orientation(self):
         """Save orientation setting, trigger sync if target folder is empty, restart cage."""

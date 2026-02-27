@@ -475,6 +475,17 @@
             <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
         </div>
         <div class="schedule-control">
+            <label id="interval-label">Interval</label>
+            <div class="time-picker">
+                <div class="time-digit">
+                    <button class="time-btn" onclick="adjustInterval(10)">+</button>
+                    <span class="time-val" id="interval-val">300</span>
+                    <button class="time-btn" onclick="adjustInterval(-10)">-</button>
+                </div>
+            </div>
+            <span style="color:#888;font-size:16px">s</span>
+        </div>
+        <div class="schedule-control">
             <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
             <div class="time-picker">
                 <div class="time-digit">
@@ -561,6 +572,7 @@
                 rebooting: 'Rebooting...',
                 sync_now: 'Sync Now',
                 confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
+                interval: 'Interval',
             },
             de: {
                 settings: 'Einstellungen',
@@ -598,6 +610,7 @@
                 rebooting: 'Neustart...',
                 sync_now: 'Sync',
                 confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
+                interval: 'Intervall',
             }
         };
         let lang = localStorage.getItem('frame-language') || 'en';
@@ -621,6 +634,7 @@
             document.getElementById('orient-saved').textContent = t('saved');
             document.querySelector('.brightness-control > label').textContent = t('brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
+            document.getElementById('interval-label').textContent = t('interval');
             document.getElementById('schedule-btn').textContent = t('sleep');
             document.querySelector('#lang-label').textContent = t('language');
             // Buttons
@@ -783,6 +797,7 @@
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
             updateAutoBrightnessUI();
             loadOrientation();
+            loadInterval();
             loadSchedule();
 
             try {
@@ -937,6 +952,27 @@
             const h = document.getElementById(which + '-h').textContent;
             const m = document.getElementById(which + '-m').textContent;
             return h + ':' + m;
+        }
+
+        function loadInterval() {
+            document.getElementById('interval-val').textContent = Math.round(config.interval / 1000);
+        }
+
+        function adjustInterval(delta) {
+            let secs = Math.round(config.interval / 1000) + delta;
+            if (secs < 5) secs = 5;
+            if (secs > 3600) secs = 3600;
+            config.interval = secs * 1000;
+            document.getElementById('interval-val').textContent = secs;
+            // Restart slideshow timer with new interval
+            if (intervalId) clearInterval(intervalId);
+            intervalId = setInterval(showNextPhoto, config.interval);
+            // Save to server
+            fetch('/api/interval', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interval: secs })
+            }).catch(() => {});
         }
 
         async function loadSchedule() {
