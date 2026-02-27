@@ -82,6 +82,27 @@
             opacity: 1;
         }
 
+        #sync-progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 0%;
+            height: 5px;
+            background: #6af;
+            z-index: 2000;
+            transition: width 0.5s ease, opacity 0.5s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #sync-progress-bar.active {
+            opacity: 1;
+        }
+
+        #sync-progress-bar.done {
+            background: #6d6;
+        }
+
         #loading {
             position: fixed;
             top: 50%;
@@ -485,6 +506,7 @@
         </div>
         <div class="settings-buttons">
             <button class="settings-btn" onclick="openFolderSync()">FolderSync</button>
+            <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">Sync Now</button>
             <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
             <button class="settings-btn" onclick="doReboot()">Reboot</button>
             <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
@@ -496,6 +518,7 @@
         <div id="qr-url"></div>
         <button class="settings-btn close-btn" onclick="closeFolderSync()">Close</button>
     </div>
+    <div id="sync-progress-bar"></div>
     <div id="hot-corner"></div>
     <div id="hot-corner-progress"></div>
 
@@ -536,6 +559,8 @@
                 confirm_reboot: 'Reboot Raspberry Pi?',
                 shutting_down: 'Shutting down...',
                 rebooting: 'Rebooting...',
+                sync_now: 'Sync Now',
+                confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
             },
             de: {
                 settings: 'Einstellungen',
@@ -571,6 +596,8 @@
                 confirm_reboot: 'Raspberry Pi neustarten?',
                 shutting_down: 'Wird ausgeschaltet...',
                 rebooting: 'Neustart...',
+                sync_now: 'Sync',
+                confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
             }
         };
         let lang = localStorage.getItem('frame-language') || 'en';
@@ -599,9 +626,10 @@
             // Buttons
             var btns = document.querySelectorAll('.settings-buttons .settings-btn');
             btns[0].textContent = t('foldersync');
-            btns[1].textContent = t('close');
-            btns[2].textContent = t('reboot');
-            btns[3].textContent = t('shutdown');
+            btns[1].textContent = t('sync_now');
+            btns[2].textContent = t('close');
+            btns[3].textContent = t('reboot');
+            btns[4].textContent = t('shutdown');
             // QR overlay
             document.querySelector('#qr-overlay > h1').textContent = t('scan_to_configure');
             document.querySelector('#qr-overlay .settings-btn').textContent = t('close');
@@ -793,6 +821,56 @@
             } catch (e) {
                 document.getElementById('info-sync').textContent = '--';
             }
+        }
+
+        let syncProgressPollId = null;
+
+        function triggerSyncFromViewer() {
+            if (!confirm(t('confirm_sync'))) return;
+            fetch('/sync/trigger', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    startSyncProgressBar();
+                }
+            })
+            .catch(() => {});
+        }
+
+        function startSyncProgressBar() {
+            const bar = document.getElementById('sync-progress-bar');
+            bar.style.width = '0%';
+            bar.classList.remove('done');
+            bar.classList.add('active');
+            if (syncProgressPollId) clearInterval(syncProgressPollId);
+            syncProgressPollId = setInterval(() => {
+                fetch('/sync/status')
+                .then(r => r.json())
+                .then(s => {
+                    if (s.running && s.total > 0) {
+                        const done = s.total - (s.pending || 0);
+                        const pct = Math.max(2, (done / s.total) * 100);
+                        bar.style.width = pct + '%';
+                    } else if (!s.running) {
+                        clearInterval(syncProgressPollId);
+                        syncProgressPollId = null;
+                        bar.style.width = '100%';
+                        bar.classList.add('done');
+                        setTimeout(() => {
+                            bar.classList.remove('active', 'done');
+                            bar.style.width = '0%';
+                        }, 3000);
+                        // Reload photo list
+                        init();
+                    }
+                })
+                .catch(() => {
+                    clearInterval(syncProgressPollId);
+                    syncProgressPollId = null;
+                    bar.classList.remove('active');
+                    bar.style.width = '0%';
+                });
+            }, 3000);
         }
 
         function closeSettings() {

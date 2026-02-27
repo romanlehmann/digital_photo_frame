@@ -132,6 +132,19 @@
         #status-bar.success { color: #6d6; }
         #status-bar.error { color: #f66; }
         #status-bar.syncing { color: #6af; }
+        #sync-progress {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 0%;
+            height: 5px;
+            background: #6af;
+            z-index: 2000;
+            transition: width 0.5s ease, opacity 0.5s ease;
+            opacity: 0;
+        }
+        #sync-progress.active { opacity: 1; }
+        #sync-progress.done { background: #6d6; }
     </style>
 </head>
 <body>
@@ -155,6 +168,7 @@
         <button class="btn btn-sync" id="sync-btn" onclick="triggerSync()">Sync Now</button>
     </div>
 
+    <div id="sync-progress"></div>
     <div id="status-bar"></div>
 
     <script>
@@ -171,6 +185,7 @@
                 sync_error: 'Sync error: ', sync_complete: 'Sync complete \u2014 ',
                 photos: ' photos', left: ' left', lost_connection: 'Lost connection',
                 empty_passphrase: '(leave empty if none)',
+                confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
             },
             de: {
                 title: 'FolderSync', subtitle: 'Fotoquellen konfigurieren',
@@ -184,6 +199,7 @@
                 sync_error: 'Sync-Fehler: ', sync_complete: 'Sync abgeschlossen \u2014 ',
                 photos: ' Fotos', left: ' \u00fcbrig', lost_connection: 'Verbindung verloren',
                 empty_passphrase: '(leer lassen wenn keins)',
+                confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
             }
         };
         var lang = localStorage.getItem('frame-language') || 'en';
@@ -374,7 +390,12 @@
         }
 
         function triggerSync() {
+            if (!confirm(t('confirm_sync'))) return;
             showStatus(t('starting_sync'), 'syncing');
+            var bar = document.getElementById('sync-progress');
+            bar.style.width = '0%';
+            bar.classList.remove('done');
+            bar.classList.add('active');
             fetch('/sync/trigger', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -382,14 +403,17 @@
                     pollSyncStatus();
                 } else {
                     showStatus(data.message || t('network_error'), 'error');
+                    bar.classList.remove('active');
                 }
             })
             .catch(function(e) {
                 showStatus(t('network_error'), 'error');
+                bar.classList.remove('active');
             });
         }
 
         function pollSyncStatus() {
+            var bar = document.getElementById('sync-progress');
             if (syncPollId) clearInterval(syncPollId);
             syncPollId = setInterval(function() {
                 fetch('/sync/status')
@@ -399,9 +423,20 @@
                         var msg = s.phase || 'syncing';
                         if (s.pending != null) msg += ' (' + s.pending + t('left') + ')';
                         showStatus(msg, 'syncing');
+                        if (s.total > 0) {
+                            var done = s.total - (s.pending || 0);
+                            var pct = Math.max(2, (done / s.total) * 100);
+                            bar.style.width = pct + '%';
+                        }
                     } else {
                         clearInterval(syncPollId);
                         syncPollId = null;
+                        bar.style.width = '100%';
+                        bar.classList.add('done');
+                        setTimeout(function() {
+                            bar.classList.remove('active', 'done');
+                            bar.style.width = '0%';
+                        }, 3000);
                         if (s.error) {
                             showStatus(t('sync_error') + s.error, 'error');
                         } else {
@@ -414,6 +449,8 @@
                 .catch(function() {
                     clearInterval(syncPollId);
                     syncPollId = null;
+                    bar.classList.remove('active');
+                    bar.style.width = '0%';
                     showStatus(t('lost_connection'), 'error');
                 });
             }, 3000);
