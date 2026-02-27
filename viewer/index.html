@@ -731,8 +731,11 @@
         // Energy save schedule
         function setTimeDisplay(which, timeStr) {
             const parts = (timeStr || '00:00').split(':');
+            let m = parseInt(parts[1]) || 0;
+            m = Math.round(m / 5) * 5;
+            if (m >= 60) m = 55;
             document.getElementById(which + '-h').textContent = parts[0];
-            document.getElementById(which + '-m').textContent = parts[1];
+            document.getElementById(which + '-m').textContent = String(m).padStart(2, '0');
         }
 
         function getTimeDisplay(which) {

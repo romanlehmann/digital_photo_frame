@@ -173,7 +173,7 @@ class SynologyPhotosClient:
             try:
                 data = {
                     'api': api,
-                    'method': 'list' if 'Album' in api else 'get',
+                    'method': 'get',
                     'version': 1,
                     'offset': 0,
                     'limit': 1,
