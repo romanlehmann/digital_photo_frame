@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Photo Frame — Remote Config</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            color: #eee;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            padding-bottom: 100px;
+        }
+        h1 {
+            font-size: 22px;
+            margin-bottom: 4px;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .album-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .album-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .album-header span {
+            font-size: 16px;
+            font-weight: 600;
+            color: #aaa;
+        }
+        .remove-btn {
+            background: none;
+            border: 1px solid #633;
+            color: #f66;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        .remove-btn:active { background: #311; }
+        label {
+            display: block;
+            color: #888;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            color: #fff;
+            margin-bottom: 10px;
+            -webkit-appearance: none;
+        }
+        input:focus {
+            outline: none;
+            border-color: #6af;
+        }
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .btn {
+            flex: 1;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+        }
+        .btn:active { opacity: 0.8; }
+        .btn-add {
+            background: #222;
+            border: 2px dashed #444;
+            color: #888;
+            padding: 14px;
+            font-size: 16px;
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+        .btn-add:active { background: #333; }
+        .btn-save { background: #2a6; }
+        .btn-sync { background: #36a; }
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 14px 20px;
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+            display: none;
+        }
+        #status-bar.visible { display: block; }
+        #status-bar.success { color: #6d6; }
+        #status-bar.error { color: #f66; }
+        #status-bar.syncing { color: #6af; }
+    </style>
+</head>
+<body>
+    <h1>FolderSync</h1>
+    <div class="subtitle">Configure Synology Photos albums</div>
+
+    <div id="albums"></div>
+    <button class="btn-add" onclick="addAlbum()">+ Add Album</button>
+
+    <div class="btn-row">
+        <button class="btn btn-save" onclick="saveConfig()">Save</button>
+        <button class="btn btn-sync" id="sync-btn" onclick="triggerSync()">Sync Now</button>
+    </div>
+
+    <div id="status-bar"></div>
+
+    <script>
+        var albums = [];
+        var syncPollId = null;
+
+        function render() {
+            var container = document.getElementById('albums');
+            container.innerHTML = '';
+            albums.forEach(function(album, i) {
+                var card = document.createElement('div');
+                card.className = 'album-card';
+                card.innerHTML =
+                    '<div class="album-header">' +
+                        '<span>Album ' + (i + 1) + '</span>' +
+                        '<button class="remove-btn" onclick="removeAlbum(' + i + ')">Remove</button>' +
+                    '</div>' +
+                    '<label>Share URL</label>' +
+                    '<input type="text" placeholder="https://photos.example.com/mo/sharing/..." ' +
+                        'value="' + escapeAttr(album.url) + '" ' +
+                        'oninput="albums[' + i + '].url=this.value">' +
+                    '<label>Passphrase</label>' +
+                    '<input type="password" placeholder="(leave empty if none)" ' +
+                        'value="' + escapeAttr(album.pass) + '" ' +
+                        'oninput="albums[' + i + '].pass=this.value">';
+                container.appendChild(card);
+            });
+        }
+
+        function escapeAttr(s) {
+            return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        }
+
+        function addAlbum() {
+            albums.push({ url: '', pass: '' });
+            render();
+        }
+
+        function removeAlbum(i) {
+            albums.splice(i, 1);
+            render();
+        }
+
+        function showStatus(msg, cls) {
+            var bar = document.getElementById('status-bar');
+            bar.textContent = msg;
+            bar.className = 'visible' + (cls ? ' ' + cls : '');
+        }
+
+        function hideStatus() {
+            document.getElementById('status-bar').className = '';
+        }
+
+        function saveConfig() {
+            var urls = albums.map(function(a) { return a.url; });
+            var passes = albums.map(function(a) { return a.pass; });
+            showStatus('Saving...', '');
+            fetch('/api/synology', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ share_urls: urls, share_passphrases: passes })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    showStatus('Saved', 'success');
+                    setTimeout(hideStatus, 2000);
+                } else {
+                    showStatus('Error: ' + (data.error || 'unknown'), 'error');
+                }
+            })
+            .catch(function(e) {
+                showStatus('Network error', 'error');
+            });
+        }
+
+        function triggerSync() {
+            showStatus('Starting sync...', 'syncing');
+            fetch('/sync/trigger', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.ok) {
+                    pollSyncStatus();
+                } else {
+                    showStatus(data.message || 'Sync failed to start', 'error');
+                }
+            })
+            .catch(function(e) {
+                showStatus('Network error', 'error');
+            });
+        }
+
+        function pollSyncStatus() {
+            if (syncPollId) clearInterval(syncPollId);
+            syncPollId = setInterval(function() {
+                fetch('/sync/status')
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    if (s.running) {
+                        var msg = s.phase || 'syncing';
+                        if (s.pending != null) msg += ' (' + s.pending + ' left)';
+                        showStatus(msg, 'syncing');
+                    } else {
+                        clearInterval(syncPollId);
+                        syncPollId = null;
+                        if (s.error) {
+                            showStatus('Sync error: ' + s.error, 'error');
+                        } else {
+                            var count = (s.h_photos || 0) + (s.v_photos || 0);
+                            showStatus('Sync complete — ' + count + ' photos', 'success');
+                            setTimeout(hideStatus, 4000);
+                        }
+                    }
+                })
+                .catch(function() {
+                    clearInterval(syncPollId);
+                    syncPollId = null;
+                    showStatus('Lost connection', 'error');
+                });
+            }, 3000);
+        }
+
+        // Load current config on page load
+        fetch('/api/synology')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var urls = data.share_urls || [];
+            var passes = data.share_passphrases || [];
+            for (var i = 0; i < urls.length; i++) {
+                albums.push({ url: urls[i], pass: passes[i] || '' });
+            }
+            if (albums.length === 0) addAlbum();
+            else render();
+        })
+        .catch(function() {
+            addAlbum();
+        });
+    </script>
+</body>
+</html>

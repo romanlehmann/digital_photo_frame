@@ -300,6 +300,12 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_orientation()
         elif path == '/sync/status':
             self.serve_sync_status()
+        elif path == '/remote':
+            self.serve_remote()
+        elif path == '/api/synology':
+            self.serve_synology_config()
+        elif path == '/api/qrcode':
+            self.serve_qrcode(parsed_path)
         elif path.startswith('/photos/'):
             # Serve photo file (supports /photos/horizontal/file.jpg)
             photo_name = path[8:]  # Remove '/photos/' prefix
@@ -321,6 +327,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_orientation()
         elif self.path == '/sync/trigger':
             self.handle_sync_trigger()
+        elif self.path == '/api/synology':
+            self.handle_save_synology_config()
         else:
             self.send_error(404, "Not found")
     
@@ -366,16 +374,27 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             return 'horizontal'
 
     def serve_photos_json(self):
-        """Serve list of photos as JSON (orientation-aware)."""
+        """Serve list of photos as JSON (orientation-aware, with fallback)."""
         try:
             orientation = self._get_orientation()
             photos_subdir = self.photos_dir / orientation
+            fallback_orientation = 'vertical' if orientation == 'horizontal' else 'horizontal'
+            fallback_subdir = self.photos_dir / fallback_orientation
 
-            if not photos_subdir.exists():
-                photos = []
-            else:
+            photos = []
+            used_orientation = orientation
+
+            if photos_subdir.exists():
                 photos = [f'/photos/{orientation}/{p.name}'
                           for p in photos_subdir.glob('*.jpg')]
+
+            # Fall back to other orientation if target folder is empty
+            if not photos and fallback_subdir.exists():
+                photos = [f'/photos/{fallback_orientation}/{p.name}'
+                          for p in fallback_subdir.glob('*.jpg')]
+                used_orientation = fallback_orientation
+                if photos:
+                    logger.info(f"No {orientation} photos, falling back to {fallback_orientation}")
 
             content = json.dumps(photos).encode('utf-8')
 
@@ -386,7 +405,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(content)
 
-            logger.info(f"Served {len(photos)} {orientation} photos in JSON")
+            logger.info(f"Served {len(photos)} {used_orientation} photos in JSON")
 
         except Exception as e:
             logger.error(f"Error serving photos JSON: {e}")
@@ -549,8 +568,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.wfile.write(content)
 
     def handle_save_orientation(self):
-        """Save orientation setting and restart cage to apply rotation."""
-        global _config_path
+        """Save orientation setting, trigger sync if target folder is empty, restart cage."""
+        global _config_path, _syncer
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
         try:
@@ -567,13 +586,24 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             with open(_config_path, 'w') as f:
                 yaml.dump(cfg, f, default_flow_style=False)
 
+            # Check if the target orientation folder has photos
+            photos_config = (_config or {}).get('photos', {})
+            base_dir = Path(photos_config.get('base_dir', '/srv/frame/photos'))
+            target_dir = base_dir / new_orientation
+            has_photos = target_dir.exists() and any(target_dir.glob('*.jpg'))
+
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'ok': True}).encode())
+            self.wfile.write(json.dumps({'ok': True, 'sync_triggered': not has_photos}).encode())
 
-            # Restart cage to apply rotation (autostart reads config)
             if new_orientation != old_orientation:
+                # Trigger sync if the target folder is empty
+                if not has_photos and _syncer:
+                    logger.info(f"Orientation switch to {new_orientation}: no photos, triggering sync")
+                    _syncer.run_sync()
+
+                # Restart cage to apply rotation (autostart reads config)
                 def restart_cage():
                     time.sleep(1)
                     subprocess.run(['sudo', 'systemctl', 'restart', 'photo_frame_cage'],
@@ -613,6 +643,111 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', len(content))
         self.end_headers()
         self.wfile.write(content)
+
+    def serve_remote(self):
+        """Serve the remote config HTML page."""
+        remote_file = self.viewer_dir / 'remote.html'
+        if not remote_file.exists():
+            self.send_error(404, "Remote config page not found")
+            return
+        try:
+            with open(remote_file, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            logger.error(f"Error serving remote page: {e}")
+            self.send_error(500, str(e))
+
+    def serve_synology_config(self):
+        """Serve Synology share URLs and passphrases as JSON."""
+        global _config
+        synology = (_config or {}).get('synology', {})
+        data = {
+            'share_urls': synology.get('share_urls', []),
+            'share_passphrases': synology.get('share_passphrases', []),
+        }
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_save_synology_config(self):
+        """Save Synology share URLs and passphrases to config."""
+        global _config, _config_path, _syncer
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            import yaml
+            data = json.loads(body)
+            urls = data.get('share_urls', [])
+            passphrases = data.get('share_passphrases', [])
+            if not isinstance(urls, list) or not isinstance(passphrases, list):
+                raise ValueError('share_urls and share_passphrases must be lists')
+            if len(urls) != len(passphrases):
+                raise ValueError('share_urls and share_passphrases must have the same length')
+
+            # Update in-memory config
+            _config.setdefault('synology', {})
+            _config['synology']['share_urls'] = urls
+            _config['synology']['share_passphrases'] = passphrases
+
+            # Write to YAML
+            with open(_config_path, 'w') as f:
+                yaml.dump(_config, f, default_flow_style=False)
+
+            # Create syncer if it didn't exist before and we now have URLs
+            if _syncer is None and any(urls):
+                from photo_sync import PhotoSyncer
+                _syncer = PhotoSyncer(_config)
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': True}).encode())
+            logger.info(f"Synology config saved: {len(urls)} album(s)")
+        except Exception as e:
+            logger.error(f"Error saving synology config: {e}")
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'ok': False, 'error': str(e)}).encode())
+
+    def serve_qrcode(self, parsed_path):
+        """Generate QR code modules as JSON for client-side canvas rendering."""
+        params = parse_qs(parsed_path.query)
+        text = params.get('text', [''])[0]
+        if not text:
+            self.send_error(400, "Missing text parameter")
+            return
+        try:
+            # Minimal QR code generation using segno (pure Python, no deps)
+            import segno
+            qr = segno.make(text, error='m')
+            matrix = qr.matrix
+            modules = []
+            for row in matrix:
+                modules.append([int(bool(cell)) for cell in row])
+            data = {'modules': modules}
+            content = json.dumps(data).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
+        except ImportError:
+            logger.error("segno not installed — pip install segno")
+            self.send_error(500, "QR library not available")
+        except Exception as e:
+            logger.error(f"QR generation error: {e}")
+            self.send_error(500, str(e))
 
     def handle_reboot(self):
         """Handle reboot request."""

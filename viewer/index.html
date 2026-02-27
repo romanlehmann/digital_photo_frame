@@ -367,6 +367,43 @@
             color: #6af;
             background: #1a2a3a;
         }
+
+        #qr-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 3000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            color: #eee;
+            font-family: 'Courier New', monospace;
+        }
+
+        #qr-overlay.visible {
+            display: flex;
+        }
+
+        #qr-overlay canvas {
+            border-radius: 12px;
+        }
+
+        #qr-url {
+            font-size: 20px;
+            color: #aaa;
+            word-break: break-all;
+            text-align: center;
+            max-width: 80vw;
+        }
+
+        #qr-overlay .settings-btn {
+            margin-top: 16px;
+        }
     </style>
 </head>
 <body>
@@ -439,10 +476,17 @@
             </div>
         </div>
         <div class="settings-buttons">
+            <button class="settings-btn" onclick="openFolderSync()">FolderSync</button>
             <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
             <button class="settings-btn" onclick="doReboot()">Reboot</button>
             <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
         </div>
+    </div>
+    <div id="qr-overlay">
+        <h1>Scan to Configure</h1>
+        <canvas id="qr-canvas"></canvas>
+        <div id="qr-url"></div>
+        <button class="settings-btn close-btn" onclick="closeFolderSync()">Close</button>
     </div>
     <div id="hot-corner"></div>
     <div id="hot-corner-progress"></div>
@@ -771,7 +815,10 @@
                 photos = await response.json();
 
                 if (photos.length === 0) {
-                    throw new Error('No photos found');
+                    // No photos yet — show waiting message and retry
+                    document.getElementById('loading').textContent = 'Waiting for photos (sync may be running)...';
+                    setTimeout(init, 10000);
+                    return;
                 }
 
                 // Shuffle photos using Fisher-Yates algorithm
@@ -979,6 +1026,56 @@
                     requestWakeLock();
                 }
             });
+        }
+
+        // QR code generation — server-side to avoid bundling a JS library
+        function generateQR(text, canvas, cellSize) {
+            cellSize = cellSize || 8;
+            fetch('/api/qrcode?text=' + encodeURIComponent(text))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var modules = data.modules;
+                    var count = modules.length;
+                    var margin = 4;
+                    var size = (count + margin * 2) * cellSize;
+                    canvas.width = size;
+                    canvas.height = size;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, size, size);
+                    ctx.fillStyle = '#000000';
+                    for (var r = 0; r < count; r++) {
+                        for (var c = 0; c < count; c++) {
+                            if (modules[r][c]) {
+                                ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
+                            }
+                        }
+                    }
+                })
+                .catch(function(e) {
+                    console.error('QR generation failed:', e);
+                });
+        }
+
+        function openFolderSync() {
+            // Get the local IP from the sysinfo already displayed
+            var ipText = document.getElementById('info-ip').textContent || '';
+            var ip = ipText.split(',')[0].trim();
+            if (!ip || ip === '--') {
+                // Fallback to Tailscale IP
+                ip = (document.getElementById('info-tailscale').textContent || '').trim();
+            }
+            if (!ip || ip === '--') {
+                ip = location.hostname;
+            }
+            var url = 'http://' + ip + ':' + location.port + '/remote';
+            document.getElementById('qr-url').textContent = url;
+            generateQR(url, document.getElementById('qr-canvas'), 8);
+            document.getElementById('qr-overlay').classList.add('visible');
+        }
+
+        function closeFolderSync() {
+            document.getElementById('qr-overlay').classList.remove('visible');
         }
 
         // Initialize
