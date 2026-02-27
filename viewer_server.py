@@ -140,32 +140,33 @@ class EnergySaveManager:
         if self.sleeping:
             self._set_sleep(False)
 
+    WLOPM_ENV = {
+        'WAYLAND_DISPLAY': 'wayland-0',
+        'XDG_RUNTIME_DIR': '/tmp/frame-runtime',
+    }
+
     def _set_sleep(self, sleep):
         try:
             if sleep and not self.sleeping:
                 self.sleeping = True
-                # Stop display service first
+                # DPMS off while cage is still running (monitor → standby, backlight off)
+                env = {**os.environ, **self.WLOPM_ENV}
+                subprocess.run(['sudo', '-u', 'robert', 'env',
+                    'WAYLAND_DISPLAY=wayland-0',
+                    'XDG_RUNTIME_DIR=/tmp/frame-runtime',
+                    'wlopm', '--off', 'HDMI-A-1'],
+                    capture_output=True, timeout=5)
+                # Wait for monitor to enter standby, then stop cage to free RAM
+                time.sleep(3)
                 subprocess.run(['sudo', 'systemctl', 'stop', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
-                # Blank framebuffer to black (works without terminal type)
-                subprocess.run(['sudo', 'sh', '-c',
-                    'echo 1 > /sys/class/graphics/fb0/blank'],
-                    capture_output=True, timeout=5)
-                # Clear all VTs to prevent text showing through
-                for tty in range(1, 4):
-                    subprocess.run(['sudo', 'sh', '-c',
-                        f'echo -ne "\\033[2J\\033[H" > /dev/tty{tty}'],
-                        capture_output=True, timeout=5)
-                logger.info("Sleep: stopped display service")
+                logger.info("Sleep: DPMS off + stopped display service")
                 # Start touch-to-wake listener
                 self._wake_event.clear()
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
-                # Unblank framebuffer
-                subprocess.run(['sudo', 'sh', '-c',
-                    'echo 0 > /sys/class/graphics/fb0/blank'],
-                    capture_output=True, timeout=5)
+                # Start cage — returning HDMI signal wakes the monitor
                 subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
                              capture_output=True, timeout=15)
                 self.sleeping = False
@@ -541,7 +542,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                 result = subprocess.run(
                     ['sudo', '-u', 'robert', 'env',
                      'WAYLAND_DISPLAY=wayland-0',
-                     'XDG_RUNTIME_DIR=/run/user/1000',
+                     'XDG_RUNTIME_DIR=/tmp/frame-runtime',
                      'wlr-randr', '--output', 'HDMI-A-1', '--transform', transform],
                     capture_output=True, text=True, timeout=10)
                 if result.returncode != 0:
