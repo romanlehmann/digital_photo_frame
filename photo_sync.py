@@ -590,7 +590,7 @@ class PhotoSyncer:
             self._set_phase('downloading')
             undownloaded = db.get_undownloaded()
             total = len(undownloaded)
-            batch_size = photos_config.get('batch_size', 50)
+            batch_size = photos_config.get('batch_size', 10)
             downloaded = 0
             processed = 0
             t_start = time.time()
