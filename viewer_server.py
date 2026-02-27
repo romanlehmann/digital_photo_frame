@@ -166,8 +166,8 @@ class EnergySaveManager:
                 subprocess.run(['sudo', 'sh', '-c',
                                 'setterm --cursor off --blank force --powerdown 0 > /dev/tty1'],
                              capture_output=True, timeout=5)
-                # Try to turn off backlight via DDC/CI (best effort)
-                subprocess.run(['ddcutil', 'setvcp', '10', '0'],
+                # Turn off backlight via DDC/CI power mode standby
+                subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '4'],
                              capture_output=True, timeout=10)
                 logger.info("Sleep: stopped display, framebuffer black")
                 # Trigger photo sync during sleep (cage stopped = more RAM)
@@ -180,8 +180,8 @@ class EnergySaveManager:
                 threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
-                # Restore backlight via DDC/CI (best effort)
-                subprocess.run(['ddcutil', 'setvcp', '10', '80'],
+                # Restore monitor from standby via DDC/CI
+                subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '1'],
                              capture_output=True, timeout=10)
                 # Start cage — takes over framebuffer, resumes slideshow
                 subprocess.run(['sudo', 'systemctl', 'start', 'photo_frame_cage'],
