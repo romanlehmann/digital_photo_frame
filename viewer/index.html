@@ -650,6 +650,13 @@
             } catch (e) {
                 console.error('Failed to load sysinfo:', e);
             }
+            updateSyncStatus();
+            syncPollId = setInterval(updateSyncStatus, 3000);
+        }
+
+        let syncPollId = null;
+
+        async function updateSyncStatus() {
             try {
                 const syncResp = await fetch('/sync/status');
                 const sync = await syncResp.json();
@@ -659,6 +666,8 @@
                     if (sync.pending != null) syncText += ` (${sync.pending} left)`;
                 } else if (sync.error) {
                     syncText = 'error';
+                } else if (sync.pending > 0) {
+                    syncText = `idle (${sync.pending} queued)`;
                 }
                 document.getElementById('info-sync').textContent = syncText;
             } catch (e) {
@@ -668,6 +677,7 @@
 
         function closeSettings() {
             document.getElementById('settings-overlay').classList.remove('visible');
+            if (syncPollId) { clearInterval(syncPollId); syncPollId = null; }
             // Resume slideshow
             intervalId = setInterval(showNextPhoto, config.interval);
         }
