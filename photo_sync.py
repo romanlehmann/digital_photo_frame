@@ -830,13 +830,12 @@ class PhotoSyncer:
 
             unprocessed = db.get_unprocessed(orientation)
             total = len(unprocessed)
-            batch_size = photos_config.get('batch_size', 10)
             downloaded = 0
             processed = 0
             t_start = time.time()
 
-            if total > batch_size:
-                logger.info(f"Batch limit: processing {batch_size} of {total} pending photos")
+            if total:
+                logger.info(f"Processing {total} pending photos")
 
             self._progress = {'total': len(all_items), 'pending': total, 'downloaded': 0}
 
@@ -849,10 +848,6 @@ class PhotoSyncer:
             for idx, item in enumerate(unprocessed):
                 if self._stop_event.is_set():
                     logger.info("Sync stopped by request")
-                    break
-
-                if processed >= batch_size:
-                    logger.info(f"Batch limit reached ({batch_size}), stopping for this run")
                     break
 
                 item_id = item['item_id']
