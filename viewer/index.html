@@ -831,7 +831,27 @@
                 photos = await response.json();
 
                 if (photos.length === 0) {
-                    // No photos yet — show waiting message and retry
+                    // Check if we're in hotspot mode
+                    try {
+                        const wifiResp = await fetch('/api/wifi/status');
+                        if (wifiResp.ok) {
+                            const wifi = await wifiResp.json();
+                            if (wifi.mode === 'hotspot') {
+                                document.getElementById('loading').innerHTML =
+                                    '<div style="text-align:center;line-height:1.8">' +
+                                    '<div style="font-size:32px;margin-bottom:20px">WiFi Setup Required</div>' +
+                                    '<div style="font-size:24px;color:#aaa">Connect to:</div>' +
+                                    '<div style="font-size:28px;color:#6af;margin:8px 0">' + (wifi.hotspot_ssid || 'PhotoFrame-Setup') + '</div>' +
+                                    '<div style="font-size:24px;color:#aaa">Password:</div>' +
+                                    '<div style="font-size:28px;color:#6af;margin:8px 0">' + (wifi.hotspot_password || 'photoframe') + '</div>' +
+                                    '<div style="font-size:18px;color:#666;margin-top:20px">Then open the setup page on your phone</div>' +
+                                    '</div>';
+                                setTimeout(init, 15000);
+                                return;
+                            }
+                        }
+                    } catch (e) {}
+                    // Normal mode: waiting for photos
                     document.getElementById('loading').textContent = 'Waiting for photos (sync may be running)...';
                     setTimeout(init, 10000);
                     return;

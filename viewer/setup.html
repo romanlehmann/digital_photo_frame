@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Photo Frame — WiFi Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #111;
+            color: #eee;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            padding-bottom: 100px;
+        }
+        h1 {
+            font-size: 22px;
+            margin-bottom: 4px;
+            color: #fff;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .network-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .network-card:active {
+            background: #222;
+        }
+        .signal-icon {
+            width: 28px;
+            height: 22px;
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+        .signal-bar {
+            width: 5px;
+            background: #555;
+            border-radius: 1px;
+        }
+        .signal-bar.active {
+            background: #6d6;
+        }
+        .network-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .network-ssid {
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .network-detail {
+            font-size: 12px;
+            color: #888;
+            margin-top: 2px;
+        }
+        .lock-icon {
+            font-size: 16px;
+            color: #888;
+            flex-shrink: 0;
+        }
+        .password-form {
+            background: #1a1a1a;
+            border: 2px solid #36a;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+        .password-form .pw-label {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 8px;
+        }
+        .password-form .pw-ssid {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+        input[type="password"] {
+            width: 100%;
+            padding: 14px;
+            font-size: 16px;
+            background: #222;
+            border: 1px solid #444;
+            border-radius: 8px;
+            color: #fff;
+            margin-bottom: 12px;
+            -webkit-appearance: none;
+        }
+        input:focus {
+            outline: none;
+            border-color: #6af;
+        }
+        .btn {
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            width: 100%;
+        }
+        .btn:active { opacity: 0.8; }
+        .btn-connect { background: #2a6; }
+        .btn-cancel {
+            background: #333;
+            margin-top: 8px;
+        }
+        .btn-rescan {
+            background: #222;
+            border: 2px dashed #444;
+            color: #888;
+            padding: 14px;
+            font-size: 16px;
+            width: 100%;
+            border-radius: 10px;
+            margin-top: 16px;
+        }
+        .btn-rescan:active { background: #333; }
+        #status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 14px 20px;
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+            display: none;
+        }
+        #status-bar.visible { display: block; }
+        #status-bar.success { color: #6d6; }
+        #status-bar.error { color: #f66; }
+        #status-bar.connecting { color: #6af; }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #6af;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WiFi Setup</h1>
+    <div class="subtitle">Select a network to connect your photo frame</div>
+
+    <div id="networks"></div>
+    <button class="btn-rescan" onclick="scanNetworks()">Rescan</button>
+
+    <div id="status-bar"></div>
+
+    <script>
+        var networks = [];
+        var selectedSSID = null;
+        var connecting = false;
+
+        function signalBars(signal) {
+            // 4 bars: thresholds at 20, 40, 60, 80
+            var bars = [6, 10, 15, 22]; // heights
+            var active = signal >= 80 ? 4 : signal >= 60 ? 3 : signal >= 40 ? 2 : signal >= 20 ? 1 : 0;
+            var html = '';
+            for (var i = 0; i < 4; i++) {
+                html += '<div class="signal-bar' + (i < active ? ' active' : '') + '" style="height:' + bars[i] + 'px"></div>';
+            }
+            return html;
+        }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function render() {
+            var container = document.getElementById('networks');
+
+            if (networks.length === 0 && !connecting) {
+                container.innerHTML = '<div class="empty-state">Scanning for networks...</div>';
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < networks.length; i++) {
+                var n = networks[i];
+
+                if (selectedSSID === n.ssid) {
+                    html += '<div class="password-form">' +
+                        '<div class="pw-label">Connect to</div>' +
+                        '<div class="pw-ssid">' + escapeHtml(n.ssid) + '</div>';
+                    if (n.secured) {
+                        html += '<input type="password" id="wifi-password" placeholder="WiFi password" autocomplete="off">';
+                    }
+                    html += '<button class="btn btn-connect" onclick="doConnect()">Connect</button>' +
+                        '<button class="btn btn-cancel" onclick="cancelSelect()">Cancel</button>' +
+                        '</div>';
+                } else {
+                    html += '<div class="network-card" onclick="selectNetwork(\'' + escapeHtml(n.ssid).replace(/'/g, "\\'") + '\')">' +
+                        '<div class="signal-icon">' + signalBars(n.signal) + '</div>' +
+                        '<div class="network-info">' +
+                            '<div class="network-ssid">' + escapeHtml(n.ssid) + '</div>' +
+                            '<div class="network-detail">' + (n.signal || 0) + '% signal</div>' +
+                        '</div>' +
+                        (n.secured ? '<span class="lock-icon">&#128274;</span>' : '') +
+                        '</div>';
+                }
+            }
+            container.innerHTML = html;
+
+            // Focus password field if present
+            var pwField = document.getElementById('wifi-password');
+            if (pwField) pwField.focus();
+        }
+
+        function selectNetwork(ssid) {
+            if (connecting) return;
+            selectedSSID = ssid;
+            render();
+        }
+
+        function cancelSelect() {
+            selectedSSID = null;
+            render();
+        }
+
+        function showStatus(msg, cls) {
+            var bar = document.getElementById('status-bar');
+            bar.innerHTML = msg;
+            bar.className = 'visible' + (cls ? ' ' + cls : '');
+        }
+
+        function hideStatus() {
+            document.getElementById('status-bar').className = '';
+        }
+
+        function doConnect() {
+            if (connecting) return;
+            var ssid = selectedSSID;
+            var pwField = document.getElementById('wifi-password');
+            var password = pwField ? pwField.value : '';
+
+            connecting = true;
+            showStatus('<span class="spinner"></span>Connecting to ' + escapeHtml(ssid) + '...', 'connecting');
+
+            fetch('/api/wifi/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ssid: ssid, password: password })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                connecting = false;
+                if (data.ok) {
+                    showStatus('Connected! The frame will start showing photos. You can close this page and reconnect to your home WiFi.', 'success');
+                    selectedSSID = null;
+                    render();
+                } else {
+                    showStatus('Failed: ' + (data.message || 'Unknown error') + '. Try again.', 'error');
+                    render();
+                }
+            })
+            .catch(function(e) {
+                // Expected: phone loses connection when hotspot drops
+                connecting = false;
+                showStatus('Connecting... the hotspot will shut down. Reconnect to your home WiFi to check if the frame is working.', 'connecting');
+            });
+        }
+
+        function scanNetworks() {
+            showStatus('<span class="spinner"></span>Scanning...', 'connecting');
+            fetch('/api/wifi/scan', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                networks = data.networks || [];
+                hideStatus();
+                selectedSSID = null;
+                render();
+            })
+            .catch(function(e) {
+                showStatus('Scan failed', 'error');
+            });
+        }
+
+        // Initial scan on load
+        scanNetworks();
+    </script>
+</body>
+</html>

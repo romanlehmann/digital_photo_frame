@@ -1,0 +1,17 @@
+[Unit]
+Description=Digital Photo Frame Auto-Update
+After=network-online.target
+Wants=network-online.target
+Before=photo_frame_server.service
+
+[Service]
+Type=oneshot
+User=frame_user
+WorkingDirectory=/home/frame_user/digital_photo_frame
+ExecStart=/home/frame_user/digital_photo_frame/scripts/update.sh
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

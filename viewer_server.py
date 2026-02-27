@@ -271,6 +271,7 @@ _config_path = None
 _syncer = None
 _config = None
 _album_name_cache = {}  # url -> resolved album name
+_wifi_manager = None
 
 
 class PhotoFrameHandler(SimpleHTTPRequestHandler):
@@ -316,12 +317,16 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_album_names()
         elif path == '/api/qrcode':
             self.serve_qrcode(parsed_path)
+        elif path == '/setup':
+            self.serve_setup()
+        elif path == '/api/wifi/status':
+            self.serve_wifi_status()
         elif path.startswith('/photos/'):
             # Serve photo file (supports /photos/horizontal/file.jpg)
             photo_name = path[8:]  # Remove '/photos/' prefix
             self.serve_photo(photo_name)
         else:
-            self.send_error(404, "Not found")
+            self.handle_not_found()
     
     def do_POST(self):
         """Handle POST requests."""
@@ -341,6 +346,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
             self.handle_save_google_photos_config()
+        elif self.path == '/api/wifi/scan':
+            self.handle_wifi_scan()
+        elif self.path == '/api/wifi/connect':
+            self.handle_wifi_connect()
         else:
             self.send_error(404, "Not found")
     
@@ -874,6 +883,106 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.error(f"QR generation error: {e}")
             self.send_error(500, str(e))
 
+    def handle_not_found(self):
+        """Handle 404 — redirect to /setup in hotspot mode (captive portal)."""
+        global _wifi_manager
+        if _wifi_manager and _wifi_manager.mode == 'hotspot':
+            self.send_response(302)
+            self.send_header('Location', '/setup')
+            self.end_headers()
+        else:
+            self.send_error(404, "Not found")
+
+    def serve_setup(self):
+        """Serve the WiFi setup page."""
+        setup_file = self.viewer_dir / 'setup.html'
+        if not setup_file.exists():
+            self.send_error(404, "Setup page not found")
+            return
+        try:
+            with open(setup_file, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-Length', len(content))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            logger.error(f"Error serving setup page: {e}")
+            self.send_error(500, str(e))
+
+    def serve_wifi_status(self):
+        """Serve WiFi manager status as JSON."""
+        global _wifi_manager
+        if _wifi_manager:
+            data = _wifi_manager.get_status()
+        else:
+            data = {'mode': 'normal', 'ssid': '', 'ip': ''}
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def handle_wifi_scan(self):
+        """Scan for WiFi networks."""
+        global _wifi_manager
+        if not _wifi_manager:
+            self._json_response({'networks': []})
+            return
+        networks = _wifi_manager.scan_networks()
+        self._json_response({'networks': networks})
+
+    def handle_wifi_connect(self):
+        """Connect to a WiFi network (runs in background thread)."""
+        global _wifi_manager, _syncer, _config
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            ssid = data.get('ssid', '')
+            password = data.get('password', '')
+            if not ssid:
+                self._json_response({'ok': False, 'message': 'SSID required'}, 400)
+                return
+
+            # Respond immediately (phone will lose connection when hotspot drops)
+            self._json_response({'ok': True, 'message': 'Connecting...'})
+
+            def connect_background():
+                global _syncer
+                success, message = _wifi_manager.connect_to_network(ssid, password)
+                if success:
+                    logger.info(f"WiFi connected to {ssid}, initializing syncer")
+                    # Initialize syncer now that we have connectivity
+                    if _config and _syncer is None:
+                        has_synology = any(_config.get('synology', {}).get('share_urls', []))
+                        has_google = any(_config.get('google_photos', {}).get('share_urls', []))
+                        if has_synology or has_google:
+                            from photo_sync import PhotoSyncer
+                            _syncer = PhotoSyncer(_config)
+                            _syncer.run_sync()
+                else:
+                    logger.warning(f"WiFi connect failed: {message}")
+
+            threading.Thread(target=connect_background, daemon=True).start()
+
+        except Exception as e:
+            logger.error(f"WiFi connect error: {e}")
+            self._json_response({'ok': False, 'message': str(e)}, 400)
+
+    def _json_response(self, data, status=200):
+        """Helper to send a JSON response."""
+        content = json.dumps(data).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
+
     def handle_reboot(self):
         """Handle reboot request."""
         logger.warning("Reboot requested via HTTP")
@@ -910,7 +1019,7 @@ def main():
     """Main entry point."""
     import sys
     import yaml
-    from photo_sync import PhotoSyncer
+    from wifi_manager import WiFiManager
 
     # Load config
     config_path = sys.argv[1] if len(sys.argv) > 1 else 'config_frame.yaml'
@@ -932,23 +1041,21 @@ def main():
         slideshow_config = config.get('slideshow', {})
 
         # Start background services
-        global _sysinfo_cache, _energy_save, _config_path, _syncer, _config
+        global _sysinfo_cache, _energy_save, _config_path, _syncer, _config, _wifi_manager
         _config_path = config_path
         _config = config
         _sysinfo_cache = SysinfoCache(photos_dir)
         _energy_save = EnergySaveManager()
 
-        # Initialize photo syncer (if any source is configured)
-        has_synology = any(config.get('synology', {}).get('share_urls', []))
-        has_google = any(config.get('google_photos', {}).get('share_urls', []))
-        if has_synology or has_google:
-            _syncer = PhotoSyncer(config)
-            # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)
-            def boot_sync():
-                time.sleep(60)
-                logger.info("Boot sync: triggering initial photo sync")
-                _syncer.run_sync()
-            threading.Thread(target=boot_sync, daemon=True).start()
+        # Check WiFi connectivity and start hotspot if needed
+        _wifi_manager = WiFiManager()
+        if _wifi_manager.check_connectivity():
+            logger.info("WiFi connected — normal mode")
+            # Initialize photo syncer (if any source is configured)
+            _init_syncer(config)
+        else:
+            logger.warning("No WiFi connectivity — starting hotspot")
+            _wifi_manager.start_hotspot()
 
         handler = create_handler(photos_dir, viewer_dir, slideshow_config)
         HTTPServer.allow_reuse_address = True
@@ -957,7 +1064,10 @@ def main():
         logger.info(f"Starting photo frame server on port {port}")
         logger.info(f"Photos directory: {photos_dir}")
         logger.info(f"Viewer directory: {viewer_dir}")
-        logger.info(f"Open http://localhost:{port}/ to view")
+        if _wifi_manager.mode == 'hotspot':
+            logger.info(f"Hotspot mode: connect to '{_wifi_manager.get_status()['hotspot_ssid']}'")
+        else:
+            logger.info(f"Open http://localhost:{port}/ to view")
 
         server.serve_forever()
 
@@ -966,6 +1076,22 @@ def main():
     except Exception as e:
         logger.error(f"Server error: {e}")
         sys.exit(1)
+
+
+def _init_syncer(config):
+    """Initialize the photo syncer if sources are configured, with boot sync delay."""
+    global _syncer
+    has_synology = any(config.get('synology', {}).get('share_urls', []))
+    has_google = any(config.get('google_photos', {}).get('share_urls', []))
+    if has_synology or has_google:
+        from photo_sync import PhotoSyncer
+        _syncer = PhotoSyncer(config)
+        # Boot sync: 60s after startup to let system settle (cage, Chromium, Tailscale)
+        def boot_sync():
+            time.sleep(60)
+            logger.info("Boot sync: triggering initial photo sync")
+            _syncer.run_sync()
+        threading.Thread(target=boot_sync, daemon=True).start()
 
 
 if __name__ == '__main__':
