@@ -603,8 +603,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             import yaml
             data = json.loads(body)
             interval = int(data.get('interval', 300))
-            if interval < 5:
-                interval = 5
+            if interval < 10:
+                interval = 10
             if interval > 3600:
                 interval = 3600
 

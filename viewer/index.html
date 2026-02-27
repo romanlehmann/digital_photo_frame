@@ -960,7 +960,7 @@
 
         function adjustInterval(delta) {
             let secs = Math.round(config.interval / 1000) + delta;
-            if (secs < 5) secs = 5;
+            if (secs < 10) secs = 10;
             if (secs > 3600) secs = 3600;
             config.interval = secs * 1000;
             document.getElementById('interval-val').textContent = secs;
