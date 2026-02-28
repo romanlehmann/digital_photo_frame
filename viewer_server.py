@@ -664,10 +664,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                             db.close()
                     except Exception as e:
                         logger.error(f"Orientation cleanup error: {e}")
-                    # Trigger sync for the new orientation
-                    if _syncer:
-                        logger.info(f"Orientation switch to {new_orientation}: triggering sync")
-                        _syncer.run_sync()
+                    logger.info(f"Orientation cleanup done for switch to {new_orientation}")
                 threading.Thread(target=cleanup_and_sync, daemon=True).start()
 
                 # Restart cage to apply rotation (autostart reads config)
