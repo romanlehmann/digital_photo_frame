@@ -653,20 +653,6 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({'ok': True, 'sync_triggered': not has_photos}).encode())
 
             if new_orientation != old_orientation:
-                # Trim the old orientation to 100 photos (free space)
-                def cleanup_and_sync():
-                    try:
-                        from photo_sync import PhotoDatabase
-                        db_path = photos_config.get('state_db', str(base_dir / 'state.db'))
-                        if Path(db_path).exists():
-                            db = PhotoDatabase(db_path)
-                            db.cleanup_orientation(old_orientation, 100, base_dir)
-                            db.close()
-                    except Exception as e:
-                        logger.error(f"Orientation cleanup error: {e}")
-                    logger.info(f"Orientation cleanup done for switch to {new_orientation}")
-                threading.Thread(target=cleanup_and_sync, daemon=True).start()
-
                 # Restart cage to apply rotation (autostart reads config)
                 def restart_cage():
                     time.sleep(1)
