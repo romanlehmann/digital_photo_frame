@@ -1092,6 +1092,15 @@ class PhotoSyncer:
             db.record_run(len(all_items), downloaded, processed, True)
             elapsed = time.time() - t_start
             logger.info(f"Sync done: {processed}/{total} new photos in {elapsed:.1f}s")
+
+            # Remove default placeholder photos once real photos exist
+            if processed > 0:
+                for orient in ('horizontal', 'vertical'):
+                    orient_dir = base_dir / orient
+                    for default_file in orient_dir.glob('default_*.jpg'):
+                        default_file.unlink(missing_ok=True)
+                        logger.info(f"Removed default placeholder: {default_file.name}")
+
             self._set_phase('idle')
 
         except Exception as e:
