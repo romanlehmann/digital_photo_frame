@@ -30,7 +30,7 @@ apt-get install -y -qq \
     chromium \
     ddcutil i2c-tools \
     network-manager \
-    libjpeg-dev zlib1g-dev libffi-dev \
+    libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
     2>/dev/null
 
 # ---- User groups ----
