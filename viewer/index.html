@@ -165,6 +165,14 @@
             overflow-y: auto;
         }
 
+        .settings-page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
         #settings-overlay h1 {
             font-size: 28px;
             margin-bottom: 30px;
@@ -437,90 +445,111 @@
     <div id="sleep-overlay"></div>
 
     <div id="settings-overlay">
-        <h1>Settings</h1>
-        <div class="info-grid">
-            <span class="info-label">Hostname:</span>
-            <span class="info-value" id="info-hostname">--</span>
-            <span class="info-label">IP:</span>
-            <span class="info-value" id="info-ip">--</span>
-            <span class="info-label">Tailscale:</span>
-            <span class="info-value" id="info-tailscale">--</span>
-            <span class="info-label">WiFi:</span>
-            <span class="info-value" id="info-wifi">--</span>
-            <span class="info-label">CPU Temp:</span>
-            <span class="info-value" id="info-temp">--</span>
-            <span class="info-label">Disk:</span>
-            <span class="info-value" id="info-disk">--</span>
-            <span class="info-label">Photos:</span>
-            <span class="info-value" id="info-photos">--</span>
-            <span class="info-label">Sync:</span>
-            <span class="info-value" id="info-sync">--</span>
-        </div>
-        <div class="orientation-control">
-            <label>Orientation</label>
-            <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
-            <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
-            <span class="save-msg" id="orient-saved">Saved</span>
-        </div>
-        <div class="orientation-control">
-            <label id="lang-label">Language</label>
-            <button class="orient-btn" id="lang-en" onclick="setLanguage('en')">🇬🇧</button>
-            <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">🇩🇪</button>
-        </div>
-        <div class="brightness-control">
-            <label>Brightness</label>
-            <input type="range" id="brightness-slider" min="0" max="100" value="100"
-                   oninput="setBrightness(this.value)">
-            <span class="brightness-value" id="brightness-value">100%</span>
-            <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
-        </div>
-        <div class="schedule-control">
-            <label id="interval-label">Interval</label>
-            <div class="time-picker">
-                <div class="time-digit">
-                    <button class="time-btn" onclick="adjustInterval(10)">+</button>
-                    <span class="time-val" id="interval-val">300</span>
-                    <button class="time-btn" onclick="adjustInterval(-10)">-</button>
+        <!-- Main Page -->
+        <div id="settings-main" class="settings-page">
+            <h1>Settings</h1>
+            <div class="brightness-control">
+                <label>Brightness</label>
+                <input type="range" id="brightness-slider" min="0" max="100" value="100"
+                       oninput="setBrightness(this.value)">
+                <span class="brightness-value" id="brightness-value">100%</span>
+                <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
+            </div>
+            <div class="schedule-control">
+                <label id="interval-label">Interval</label>
+                <div class="time-picker">
+                    <div class="time-digit">
+                        <button class="time-btn" onclick="adjustInterval(10)">+</button>
+                        <span class="time-val" id="interval-val">300</span>
+                        <button class="time-btn" onclick="adjustInterval(-10)">-</button>
+                    </div>
+                </div>
+                <span style="color:#888;font-size:16px">s</span>
+            </div>
+            <div class="schedule-control">
+                <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
+                <div class="time-picker">
+                    <div class="time-digit">
+                        <button class="time-btn" onclick="adjustTime('off','h',1)">+</button>
+                        <span class="time-val" id="off-h">22</span>
+                        <button class="time-btn" onclick="adjustTime('off','h',-1)">-</button>
+                    </div>
+                    <span class="time-colon">:</span>
+                    <div class="time-digit">
+                        <button class="time-btn" onclick="adjustTime('off','m',5)">+</button>
+                        <span class="time-val" id="off-m">00</span>
+                        <button class="time-btn" onclick="adjustTime('off','m',-5)">-</button>
+                    </div>
+                </div>
+                <span class="sep">-</span>
+                <div class="time-picker">
+                    <div class="time-digit">
+                        <button class="time-btn" onclick="adjustTime('on','h',1)">+</button>
+                        <span class="time-val" id="on-h">07</span>
+                        <button class="time-btn" onclick="adjustTime('on','h',-1)">-</button>
+                    </div>
+                    <span class="time-colon">:</span>
+                    <div class="time-digit">
+                        <button class="time-btn" onclick="adjustTime('on','m',5)">+</button>
+                        <span class="time-val" id="on-m">00</span>
+                        <button class="time-btn" onclick="adjustTime('on','m',-5)">-</button>
+                    </div>
                 </div>
             </div>
-            <span style="color:#888;font-size:16px">s</span>
-        </div>
-        <div class="schedule-control">
-            <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
-            <div class="time-picker">
-                <div class="time-digit">
-                    <button class="time-btn" onclick="adjustTime('off','h',1)">+</button>
-                    <span class="time-val" id="off-h">22</span>
-                    <button class="time-btn" onclick="adjustTime('off','h',-1)">-</button>
-                </div>
-                <span class="time-colon">:</span>
-                <div class="time-digit">
-                    <button class="time-btn" onclick="adjustTime('off','m',5)">+</button>
-                    <span class="time-val" id="off-m">00</span>
-                    <button class="time-btn" onclick="adjustTime('off','m',-5)">-</button>
-                </div>
-            </div>
-            <span class="sep">-</span>
-            <div class="time-picker">
-                <div class="time-digit">
-                    <button class="time-btn" onclick="adjustTime('on','h',1)">+</button>
-                    <span class="time-val" id="on-h">07</span>
-                    <button class="time-btn" onclick="adjustTime('on','h',-1)">-</button>
-                </div>
-                <span class="time-colon">:</span>
-                <div class="time-digit">
-                    <button class="time-btn" onclick="adjustTime('on','m',5)">+</button>
-                    <span class="time-val" id="on-m">00</span>
-                    <button class="time-btn" onclick="adjustTime('on','m',-5)">-</button>
-                </div>
+            <div class="settings-buttons">
+                <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">Sync Now</button>
+                <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
+                <button class="settings-btn" onclick="showSettingsPage('system')">System</button>
+                <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
             </div>
         </div>
-        <div class="settings-buttons">
-            <button class="settings-btn" onclick="openFolderSync()">FolderSync</button>
-            <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">Sync Now</button>
-            <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
-            <button class="settings-btn" onclick="doReboot()">Reboot</button>
-            <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
+
+        <!-- Display Page -->
+        <div id="settings-display" class="settings-page" style="display:none">
+            <h1 id="display-title">Display</h1>
+            <div class="orientation-control">
+                <label>Orientation</label>
+                <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
+                <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
+                <span class="save-msg" id="orient-saved">Saved</span>
+            </div>
+            <div class="orientation-control">
+                <label id="lang-label">Language</label>
+                <button class="orient-btn" id="lang-en" onclick="setLanguage('en')">🇬🇧</button>
+                <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">🇩🇪</button>
+            </div>
+            <div class="settings-buttons">
+                <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
+            </div>
+        </div>
+
+        <!-- System Page -->
+        <div id="settings-system" class="settings-page" style="display:none">
+            <h1 id="system-title">System</h1>
+            <div class="info-grid">
+                <span class="info-label">Hostname:</span>
+                <span class="info-value" id="info-hostname">--</span>
+                <span class="info-label">IP:</span>
+                <span class="info-value" id="info-ip">--</span>
+                <span class="info-label">Tailscale:</span>
+                <span class="info-value" id="info-tailscale">--</span>
+                <span class="info-label">WiFi:</span>
+                <span class="info-value" id="info-wifi">--</span>
+                <span class="info-label">CPU Temp:</span>
+                <span class="info-value" id="info-temp">--</span>
+                <span class="info-label">Disk:</span>
+                <span class="info-value" id="info-disk">--</span>
+                <span class="info-label">Photos:</span>
+                <span class="info-value" id="info-photos">--</span>
+                <span class="info-label">Sync:</span>
+                <span class="info-value" id="info-sync">--</span>
+            </div>
+            <div class="settings-buttons">
+                <button class="settings-btn" onclick="openFolderSync()">FolderSync</button>
+                <button class="settings-btn" onclick="doReboot()">Reboot</button>
+                <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
+                <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
+            </div>
         </div>
     </div>
     <div id="qr-overlay">
@@ -573,6 +602,9 @@
                 sync_now: 'Sync Now',
                 confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
                 interval: 'Interval',
+                display: 'Display',
+                system: 'System',
+                back: '\u2190 Back',
             },
             de: {
                 settings: 'Einstellungen',
@@ -611,6 +643,9 @@
                 sync_now: 'Sync',
                 confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
                 interval: 'Intervall',
+                display: 'Anzeige',
+                system: 'System',
+                back: '\u2190 Zur\u00fcck',
             }
         };
         let lang = localStorage.getItem('frame-language') || 'en';
@@ -623,33 +658,43 @@
         }
 
         function applyLanguage() {
-            // Settings overlay labels
-            document.querySelector('#settings-overlay > h1').textContent = t('settings');
-            var labels = document.querySelectorAll('#settings-overlay .info-label');
-            var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
-            labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
-            document.querySelector('.orientation-control > label').textContent = t('orientation');
-            document.getElementById('orient-h').textContent = t('horizontal');
-            document.getElementById('orient-v').textContent = t('vertical');
-            document.getElementById('orient-saved').textContent = t('saved');
+            // Main page
+            document.querySelector('#settings-main > h1').textContent = t('settings');
             document.querySelector('.brightness-control > label').textContent = t('brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
             document.getElementById('interval-label').textContent = t('interval');
             document.getElementById('schedule-btn').textContent = t('sleep');
+            // Main buttons
+            var mainBtns = document.querySelectorAll('#settings-main .settings-buttons .settings-btn');
+            mainBtns[0].textContent = t('sync_now');
+            mainBtns[1].textContent = t('display');
+            mainBtns[2].textContent = t('system');
+            mainBtns[3].textContent = t('close');
+            // Display page
+            document.getElementById('display-title').textContent = t('display');
+            document.querySelector('.orientation-control > label').textContent = t('orientation');
+            document.getElementById('orient-h').textContent = t('horizontal');
+            document.getElementById('orient-v').textContent = t('vertical');
+            document.getElementById('orient-saved').textContent = t('saved');
             document.querySelector('#lang-label').textContent = t('language');
-            // Buttons
-            var btns = document.querySelectorAll('.settings-buttons .settings-btn');
-            btns[0].textContent = t('foldersync');
-            btns[1].textContent = t('sync_now');
-            btns[2].textContent = t('close');
-            btns[3].textContent = t('reboot');
-            btns[4].textContent = t('shutdown');
-            // QR overlay
-            document.querySelector('#qr-overlay > h1').textContent = t('scan_to_configure');
-            document.querySelector('#qr-overlay .settings-btn').textContent = t('close');
+            var displayBtns = document.querySelectorAll('#settings-display .settings-buttons .settings-btn');
+            displayBtns[0].textContent = t('back');
+            // System page
+            document.getElementById('system-title').textContent = t('system');
+            var labels = document.querySelectorAll('#settings-system .info-label');
+            var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
+            labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
+            var sysBtns = document.querySelectorAll('#settings-system .settings-buttons .settings-btn');
+            sysBtns[0].textContent = t('foldersync');
+            sysBtns[1].textContent = t('reboot');
+            sysBtns[2].textContent = t('shutdown');
+            sysBtns[3].textContent = t('back');
             // Language buttons
             document.getElementById('lang-en').classList.toggle('active', lang === 'en');
             document.getElementById('lang-de').classList.toggle('active', lang === 'de');
+            // QR overlay
+            document.querySelector('#qr-overlay > h1').textContent = t('scan_to_configure');
+            document.querySelector('#qr-overlay .settings-btn').textContent = t('close');
         }
 
         // Configuration (loaded from server /config endpoint)
@@ -783,8 +828,14 @@
         }
 
         // Settings overlay
+        function showSettingsPage(page) {
+            document.querySelectorAll('.settings-page').forEach(p => p.style.display = 'none');
+            document.getElementById('settings-' + page).style.display = 'flex';
+        }
+
         async function openSettings() {
             const overlay = document.getElementById('settings-overlay');
+            showSettingsPage('main');
             overlay.classList.add('visible');
             // Pause slideshow
             if (intervalId) clearInterval(intervalId);
@@ -898,7 +949,7 @@
         async function doShutdown() {
             if (confirm(t('confirm_shutdown'))) {
                 await fetch('/shutdown', {method: 'POST'});
-                document.getElementById('settings-overlay').innerHTML =
+                document.getElementById('settings-system').innerHTML =
                     '<h1 style="color:#f66">' + t('shutting_down') + '</h1>';
             }
         }
@@ -1033,7 +1084,7 @@
         async function doReboot() {
             if (confirm(t('confirm_reboot'))) {
                 await fetch('/reboot', {method: 'POST'});
-                document.getElementById('settings-overlay').innerHTML =
+                document.getElementById('settings-system').innerHTML =
                     '<h1 style="color:#6af">' + t('rebooting') + '</h1>';
             }
         }
