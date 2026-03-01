@@ -400,6 +400,62 @@
             background: #1a2a3a;
         }
 
+        #power-popup {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 2500;
+        }
+
+        #power-popup.visible {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .power-popup-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 40px;
+            background: #1a1a1a;
+            border: 2px solid #555;
+            border-radius: 16px;
+        }
+
+        .album-list {
+            margin-bottom: 30px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .album-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            font-size: 18px;
+        }
+
+        .album-item .album-source {
+            color: #888;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        .album-item .album-name {
+            color: #fff;
+            flex: 1;
+        }
+
         #qr-overlay {
             display: none;
             position: fixed;
@@ -448,6 +504,36 @@
         <!-- Main Page -->
         <div id="settings-main" class="settings-page">
             <h1>Settings</h1>
+            <div class="info-grid">
+                <span class="info-label">Hostname:</span>
+                <span class="info-value" id="info-hostname">--</span>
+                <span class="info-label">IP:</span>
+                <span class="info-value" id="info-ip">--</span>
+                <span class="info-label">Tailscale:</span>
+                <span class="info-value" id="info-tailscale">--</span>
+                <span class="info-label">WiFi:</span>
+                <span class="info-value" id="info-wifi">--</span>
+                <span class="info-label">CPU Temp:</span>
+                <span class="info-value" id="info-temp">--</span>
+                <span class="info-label">Disk:</span>
+                <span class="info-value" id="info-disk">--</span>
+                <span class="info-label">Photos:</span>
+                <span class="info-value" id="info-photos">--</span>
+                <span class="info-label">Sync:</span>
+                <span class="info-value" id="info-sync">--</span>
+            </div>
+            <div class="settings-buttons">
+                <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">🔄 Sync Now</button>
+                <button class="settings-btn" onclick="showSettingsPage('albums')">FolderSync</button>
+                <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
+                <button class="settings-btn" onclick="showPowerPopup()">⏻</button>
+                <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
+            </div>
+        </div>
+
+        <!-- Display Page -->
+        <div id="settings-display" class="settings-page" style="display:none">
+            <h1 id="display-title">Display</h1>
             <div class="brightness-control">
                 <label>Brightness</label>
                 <input type="range" id="brightness-slider" min="0" max="100" value="100"
@@ -496,17 +582,6 @@
                     </div>
                 </div>
             </div>
-            <div class="settings-buttons">
-                <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">Sync Now</button>
-                <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
-                <button class="settings-btn" onclick="showSettingsPage('system')">System</button>
-                <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
-            </div>
-        </div>
-
-        <!-- Display Page -->
-        <div id="settings-display" class="settings-page" style="display:none">
-            <h1 id="display-title">Display</h1>
             <div class="orientation-control">
                 <label>Orientation</label>
                 <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
@@ -523,35 +598,28 @@
             </div>
         </div>
 
-        <!-- System Page -->
-        <div id="settings-system" class="settings-page" style="display:none">
-            <h1 id="system-title">System</h1>
-            <div class="info-grid">
-                <span class="info-label">Hostname:</span>
-                <span class="info-value" id="info-hostname">--</span>
-                <span class="info-label">IP:</span>
-                <span class="info-value" id="info-ip">--</span>
-                <span class="info-label">Tailscale:</span>
-                <span class="info-value" id="info-tailscale">--</span>
-                <span class="info-label">WiFi:</span>
-                <span class="info-value" id="info-wifi">--</span>
-                <span class="info-label">CPU Temp:</span>
-                <span class="info-value" id="info-temp">--</span>
-                <span class="info-label">Disk:</span>
-                <span class="info-value" id="info-disk">--</span>
-                <span class="info-label">Photos:</span>
-                <span class="info-value" id="info-photos">--</span>
-                <span class="info-label">Sync:</span>
-                <span class="info-value" id="info-sync">--</span>
+        <!-- Albums Page -->
+        <div id="settings-albums" class="settings-page" style="display:none">
+            <h1 id="albums-title">FolderSync</h1>
+            <div id="album-list" class="album-list">
+                <div style="color:#888;font-size:18px">Loading albums...</div>
             </div>
             <div class="settings-buttons">
-                <button class="settings-btn" onclick="openFolderSync()">FolderSync</button>
-                <button class="settings-btn" onclick="doReboot()">Reboot</button>
-                <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
+                <button class="settings-btn" onclick="openFolderSync()">Edit</button>
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
             </div>
         </div>
     </div>
+
+    <!-- Power Popup -->
+    <div id="power-popup">
+        <div class="power-popup-inner">
+            <button class="settings-btn" onclick="doReboot()">Reboot</button>
+            <button class="settings-btn danger" onclick="doShutdown()">Shutdown</button>
+            <button class="settings-btn close-btn" onclick="closePowerPopup()">Cancel</button>
+        </div>
+    </div>
+
     <div id="qr-overlay">
         <h1>Scan to Configure</h1>
         <canvas id="qr-canvas"></canvas>
@@ -603,8 +671,11 @@
                 confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
                 interval: 'Interval',
                 display: 'Display',
-                system: 'System',
                 back: '\u2190 Back',
+                edit: 'Edit',
+                cancel: 'Cancel',
+                no_albums: 'No albums configured',
+                loading_albums: 'Loading albums...',
             },
             de: {
                 settings: 'Einstellungen',
@@ -644,8 +715,11 @@
                 confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
                 interval: 'Intervall',
                 display: 'Anzeige',
-                system: 'System',
                 back: '\u2190 Zur\u00fcck',
+                edit: 'Bearbeiten',
+                cancel: 'Abbrechen',
+                no_albums: 'Keine Alben konfiguriert',
+                loading_albums: 'Lade Alben...',
             }
         };
         let lang = localStorage.getItem('frame-language') || 'en';
@@ -660,18 +734,21 @@
         function applyLanguage() {
             // Main page
             document.querySelector('#settings-main > h1').textContent = t('settings');
+            var labels = document.querySelectorAll('#settings-main .info-label');
+            var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
+            labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
+            var mainBtns = document.querySelectorAll('#settings-main .settings-buttons .settings-btn');
+            mainBtns[0].textContent = '\uD83D\uDD04 ' + t('sync_now');
+            mainBtns[1].textContent = t('foldersync');
+            mainBtns[2].textContent = t('display');
+            // mainBtns[3] is ⏻ — no translation needed
+            mainBtns[4].textContent = t('close');
+            // Display page
+            document.getElementById('display-title').textContent = t('display');
             document.querySelector('.brightness-control > label').textContent = t('brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
             document.getElementById('interval-label').textContent = t('interval');
             document.getElementById('schedule-btn').textContent = t('sleep');
-            // Main buttons
-            var mainBtns = document.querySelectorAll('#settings-main .settings-buttons .settings-btn');
-            mainBtns[0].textContent = t('sync_now');
-            mainBtns[1].textContent = t('display');
-            mainBtns[2].textContent = t('system');
-            mainBtns[3].textContent = t('close');
-            // Display page
-            document.getElementById('display-title').textContent = t('display');
             document.querySelector('.orientation-control > label').textContent = t('orientation');
             document.getElementById('orient-h').textContent = t('horizontal');
             document.getElementById('orient-v').textContent = t('vertical');
@@ -679,16 +756,16 @@
             document.querySelector('#lang-label').textContent = t('language');
             var displayBtns = document.querySelectorAll('#settings-display .settings-buttons .settings-btn');
             displayBtns[0].textContent = t('back');
-            // System page
-            document.getElementById('system-title').textContent = t('system');
-            var labels = document.querySelectorAll('#settings-system .info-label');
-            var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
-            labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
-            var sysBtns = document.querySelectorAll('#settings-system .settings-buttons .settings-btn');
-            sysBtns[0].textContent = t('foldersync');
-            sysBtns[1].textContent = t('reboot');
-            sysBtns[2].textContent = t('shutdown');
-            sysBtns[3].textContent = t('back');
+            // Albums page
+            document.getElementById('albums-title').textContent = t('foldersync');
+            var albumBtns = document.querySelectorAll('#settings-albums .settings-buttons .settings-btn');
+            albumBtns[0].textContent = t('edit');
+            albumBtns[1].textContent = t('back');
+            // Power popup
+            var powerBtns = document.querySelectorAll('.power-popup-inner .settings-btn');
+            powerBtns[0].textContent = t('reboot');
+            powerBtns[1].textContent = t('shutdown');
+            powerBtns[2].textContent = t('cancel');
             // Language buttons
             document.getElementById('lang-en').classList.toggle('active', lang === 'en');
             document.getElementById('lang-de').classList.toggle('active', lang === 'de');
@@ -831,6 +908,35 @@
         function showSettingsPage(page) {
             document.querySelectorAll('.settings-page').forEach(p => p.style.display = 'none');
             document.getElementById('settings-' + page).style.display = 'flex';
+            if (page === 'albums') loadAlbums();
+        }
+
+        async function loadAlbums() {
+            const listEl = document.getElementById('album-list');
+            listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('loading_albums') + '</div>';
+            try {
+                const resp = await fetch('/api/album_names');
+                const data = await resp.json();
+                const albums = [];
+                for (const [src, map] of Object.entries(data)) {
+                    for (const [url, name] of Object.entries(map)) {
+                        albums.push({ source: src, name: name });
+                    }
+                }
+                albums.sort((a, b) => a.name.localeCompare(b.name));
+                if (albums.length === 0) {
+                    listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('no_albums') + '</div>';
+                    return;
+                }
+                listEl.innerHTML = albums.map(a =>
+                    '<div class="album-item">' +
+                    '<span class="album-source">' + a.source + '</span>' +
+                    '<span class="album-name">' + a.name + '</span>' +
+                    '</div>'
+                ).join('');
+            } catch (e) {
+                listEl.innerHTML = '<div style="color:#f66;font-size:18px">Error loading albums</div>';
+            }
         }
 
         async function openSettings() {
@@ -946,12 +1052,19 @@
             intervalId = setInterval(showNextPhoto, config.interval);
         }
 
+        function showPowerPopup() {
+            document.getElementById('power-popup').classList.add('visible');
+        }
+
+        function closePowerPopup() {
+            document.getElementById('power-popup').classList.remove('visible');
+        }
+
         async function doShutdown() {
-            if (confirm(t('confirm_shutdown'))) {
-                await fetch('/shutdown', {method: 'POST'});
-                document.getElementById('settings-system').innerHTML =
-                    '<h1 style="color:#f66">' + t('shutting_down') + '</h1>';
-            }
+            closePowerPopup();
+            await fetch('/shutdown', {method: 'POST'});
+            document.getElementById('settings-main').innerHTML =
+                '<h1 style="color:#f66">' + t('shutting_down') + '</h1>';
         }
 
         // Orientation control
@@ -1082,11 +1195,10 @@
         }
 
         async function doReboot() {
-            if (confirm(t('confirm_reboot'))) {
-                await fetch('/reboot', {method: 'POST'});
-                document.getElementById('settings-system').innerHTML =
-                    '<h1 style="color:#6af">' + t('rebooting') + '</h1>';
-            }
+            closePowerPopup();
+            await fetch('/reboot', {method: 'POST'});
+            document.getElementById('settings-main').innerHTML =
+                '<h1 style="color:#6af">' + t('rebooting') + '</h1>';
         }
 
         // Load config and photos, then start
