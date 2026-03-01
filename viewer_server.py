@@ -624,7 +624,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
     def handle_save_orientation(self):
         """Save orientation setting, trigger sync if target folder is empty, restart cage."""
-        global _config_path, _syncer
+        global _config_path, _syncer, _config
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
         try:
@@ -640,6 +640,9 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             cfg.setdefault('frame', {})['orientation'] = new_orientation
             with open(_config_path, 'w') as f:
                 yaml.dump(cfg, f, default_flow_style=False)
+
+            # Update in-memory config so syncer uses correct orientation
+            _config.setdefault('frame', {})['orientation'] = new_orientation
 
             # Check if the target orientation folder has photos
             photos_config = (_config or {}).get('photos', {})
