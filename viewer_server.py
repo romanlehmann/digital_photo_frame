@@ -99,6 +99,7 @@ class EnergySaveManager:
         self.enabled = False
         self.off_time = '22:00'
         self.on_time = '07:00'
+        self.weekdays = [0, 1, 2, 3, 4, 5, 6]  # all days (JS getDay: 0=Sun)
         self.sleeping = False
         self._wake_event = threading.Event()
         self._load()
@@ -112,6 +113,7 @@ class EnergySaveManager:
                 self.enabled = data.get('enabled', False)
                 self.off_time = data.get('off_time', '22:00')
                 self.on_time = data.get('on_time', '07:00')
+                self.weekdays = data.get('weekdays', [0, 1, 2, 3, 4, 5, 6])
         except Exception:
             pass
 
@@ -122,6 +124,7 @@ class EnergySaveManager:
                     'enabled': self.enabled,
                     'off_time': self.off_time,
                     'on_time': self.on_time,
+                    'weekdays': self.weekdays,
                 }, f)
         except Exception as e:
             logger.error(f"Error saving schedule: {e}")
@@ -134,6 +137,7 @@ class EnergySaveManager:
             'enabled': self.enabled,
             'off_time': self.off_time,
             'on_time': self.on_time,
+            'weekdays': self.weekdays,
             'sleeping': self.sleeping,
         }
 
@@ -141,6 +145,8 @@ class EnergySaveManager:
         self.enabled = data.get('enabled', self.enabled)
         self.off_time = data.get('off_time', self.off_time)
         self.on_time = data.get('on_time', self.on_time)
+        if 'weekdays' in data:
+            self.weekdays = data['weekdays']
         self._save()
         self._check()
 
@@ -251,6 +257,9 @@ class EnergySaveManager:
         from datetime import datetime
         now = datetime.now()
         now_mins = now.hour * 60 + now.minute
+        # JS getDay(): 0=Sunday, 1=Monday, ..., 6=Saturday
+        # Python weekday(): 0=Monday, ..., 6=Sunday → convert
+        js_day = (now.weekday() + 1) % 7
         off_parts = self.off_time.split(':')
         on_parts = self.on_time.split(':')
         off_mins = int(off_parts[0]) * 60 + int(off_parts[1])
@@ -258,10 +267,20 @@ class EnergySaveManager:
 
         if off_mins > on_mins:
             # e.g. 22:00 - 07:00 (overnight)
-            return now_mins >= off_mins or now_mins < on_mins
+            in_period = now_mins >= off_mins or now_mins < on_mins
+            # Check weekday: if after off_time, check today; if before on_time, check yesterday
+            if now_mins >= off_mins:
+                day_to_check = js_day
+            else:
+                day_to_check = (js_day - 1) % 7
         else:
             # e.g. 01:00 - 06:00 (same day)
-            return off_mins <= now_mins < on_mins
+            in_period = off_mins <= now_mins < on_mins
+            day_to_check = js_day
+
+        if not in_period:
+            return False
+        return day_to_check in self.weekdays
 
 
 # Global singletons, initialized in main()

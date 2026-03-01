@@ -150,11 +150,11 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0, 0, 0, 0.92);
+            background: rgba(0, 0, 0, 0.95);
             z-index: 2000;
             color: #eee;
-            font-family: 'Courier New', monospace;
-            padding: 40px;
+            font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+            padding: 30px;
         }
 
         #settings-overlay.visible {
@@ -165,26 +165,63 @@
             overflow-y: auto;
         }
 
+        .settings-close-x {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 48px;
+            height: 48px;
+            border: none;
+            background: none;
+            color: #888;
+            font-size: 32px;
+            line-height: 48px;
+            text-align: center;
+            border-radius: 50%;
+            z-index: 10;
+        }
+
+        .settings-close-x:active {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
         .settings-page {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             width: 100%;
+            max-width: 520px;
         }
 
         #settings-overlay h1 {
-            font-size: 28px;
-            margin-bottom: 30px;
+            font-size: 24px;
+            margin-bottom: 24px;
             color: #fff;
+            font-weight: 600;
+        }
+
+        .settings-section {
+            width: 100%;
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+        }
+
+        .settings-section-title {
+            font-size: 13px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
         }
 
         .info-grid {
             display: grid;
-            grid-template-columns: auto auto;
-            gap: 12px 24px;
-            font-size: 20px;
-            margin-bottom: 40px;
+            grid-template-columns: auto 1fr;
+            gap: 8px 16px;
+            font-size: 16px;
         }
 
         .info-label {
@@ -194,28 +231,30 @@
 
         .info-value {
             color: #fff;
-            font-weight: bold;
+            font-weight: 500;
         }
 
         .settings-buttons {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 20px;
+            gap: 12px;
+            width: 100%;
         }
 
         .settings-btn {
-            padding: 16px 32px;
-            font-size: 20px;
-            border: 2px solid #555;
-            border-radius: 8px;
-            background: #222;
+            padding: 14px 28px;
+            font-size: 18px;
+            border: 2px solid #333;
+            border-radius: 12px;
+            background: #1a1a1a;
             color: #fff;
-            min-width: 160px;
+            min-width: 140px;
+            font-family: inherit;
         }
 
         .settings-btn:active {
-            background: #444;
+            background: #333;
         }
 
         .settings-btn.danger {
@@ -232,18 +271,44 @@
             color: #6af;
         }
 
+        .settings-btn.power-btn {
+            min-width: 60px;
+            padding: 14px 18px;
+        }
+
+        .power-icon {
+            display: inline-block;
+            width: 22px;
+            height: 22px;
+            border: 3px solid #f66;
+            border-radius: 50%;
+            border-top-color: transparent;
+            position: relative;
+            vertical-align: middle;
+        }
+
+        .power-icon::after {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 12px;
+            background: #f66;
+            border-radius: 2px;
+        }
+
         .brightness-control {
             display: flex;
             align-items: center;
             gap: 16px;
-            margin-bottom: 40px;
             width: 100%;
-            max-width: 500px;
         }
 
         .brightness-control label {
             color: #888;
-            font-size: 20px;
+            font-size: 16px;
             white-space: nowrap;
         }
 
@@ -272,9 +337,9 @@
 
         .brightness-control .brightness-value {
             color: #fff;
-            font-size: 20px;
-            font-weight: bold;
-            min-width: 50px;
+            font-size: 16px;
+            font-weight: 500;
+            min-width: 44px;
             text-align: center;
         }
 
@@ -297,13 +362,17 @@
         .schedule-control {
             display: flex;
             align-items: center;
-            gap: 16px;
-            margin-bottom: 40px;
-            font-size: 20px;
+            gap: 12px;
+            font-size: 18px;
+        }
+
+        .schedule-control + .schedule-control {
+            margin-top: 12px;
         }
 
         .schedule-control label {
             color: #888;
+            font-size: 16px;
             white-space: nowrap;
         }
 
@@ -373,16 +442,46 @@
             opacity: 1;
         }
 
+        .weekday-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .weekday-toggle {
+            width: 40px;
+            height: 32px;
+            border: 2px solid #444;
+            border-radius: 6px;
+            background: #222;
+            color: #666;
+            font-size: 13px;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .weekday-toggle.active {
+            border-color: #36a;
+            color: #6af;
+            background: #1a2a3a;
+        }
+
         .orientation-control {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 20px;
-            font-size: 20px;
+            font-size: 18px;
+        }
+
+        .orientation-control + .orientation-control {
+            margin-top: 10px;
         }
 
         .orientation-control label {
             color: #888;
+            font-size: 16px;
         }
 
         .orient-btn {
@@ -420,17 +519,16 @@
         .power-popup-inner {
             display: flex;
             flex-direction: column;
-            gap: 20px;
-            padding: 40px;
+            gap: 16px;
+            padding: 32px;
             background: #1a1a1a;
-            border: 2px solid #555;
+            border: 1px solid #333;
             border-radius: 16px;
+            min-width: 240px;
         }
 
         .album-list {
-            margin-bottom: 30px;
             width: 100%;
-            max-width: 500px;
         }
 
         .album-item {
@@ -438,17 +536,18 @@
             align-items: center;
             gap: 12px;
             padding: 12px 16px;
-            margin-bottom: 8px;
-            background: #1a1a1a;
-            border: 1px solid #333;
+            margin-bottom: 6px;
+            background: #222;
             border-radius: 8px;
-            font-size: 18px;
+            font-size: 16px;
         }
 
         .album-item .album-source {
-            color: #888;
-            font-size: 14px;
+            color: #666;
+            font-size: 12px;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
+            min-width: 60px;
         }
 
         .album-item .album-name {
@@ -501,97 +600,118 @@
     <div id="sleep-overlay"></div>
 
     <div id="settings-overlay">
+        <button class="settings-close-x" onclick="closeSettings()">&times;</button>
+
         <!-- Main Page -->
         <div id="settings-main" class="settings-page">
             <h1>Settings</h1>
-            <div class="info-grid">
-                <span class="info-label">Hostname:</span>
-                <span class="info-value" id="info-hostname">--</span>
-                <span class="info-label">IP:</span>
-                <span class="info-value" id="info-ip">--</span>
-                <span class="info-label">Tailscale:</span>
-                <span class="info-value" id="info-tailscale">--</span>
-                <span class="info-label">WiFi:</span>
-                <span class="info-value" id="info-wifi">--</span>
-                <span class="info-label">CPU Temp:</span>
-                <span class="info-value" id="info-temp">--</span>
-                <span class="info-label">Disk:</span>
-                <span class="info-value" id="info-disk">--</span>
-                <span class="info-label">Photos:</span>
-                <span class="info-value" id="info-photos">--</span>
-                <span class="info-label">Sync:</span>
-                <span class="info-value" id="info-sync">--</span>
+            <div class="settings-section">
+                <div class="info-grid">
+                    <span class="info-label">Hostname:</span>
+                    <span class="info-value" id="info-hostname">--</span>
+                    <span class="info-label">IP:</span>
+                    <span class="info-value" id="info-ip">--</span>
+                    <span class="info-label">Tailscale:</span>
+                    <span class="info-value" id="info-tailscale">--</span>
+                    <span class="info-label">WiFi:</span>
+                    <span class="info-value" id="info-wifi">--</span>
+                    <span class="info-label">CPU Temp:</span>
+                    <span class="info-value" id="info-temp">--</span>
+                    <span class="info-label">Disk:</span>
+                    <span class="info-value" id="info-disk">--</span>
+                    <span class="info-label">Photos:</span>
+                    <span class="info-value" id="info-photos">--</span>
+                    <span class="info-label">Sync:</span>
+                    <span class="info-value" id="info-sync">--</span>
+                </div>
             </div>
             <div class="settings-buttons">
-                <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">🔄 Sync Now</button>
-                <button class="settings-btn" onclick="showSettingsPage('albums')">FolderSync</button>
+                <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">&#x1F504; Sync Now</button>
+                <button class="settings-btn" onclick="showSettingsPage('albums')">Photo Albums</button>
                 <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
-                <button class="settings-btn" onclick="showPowerPopup()">⏻</button>
-                <button class="settings-btn close-btn" onclick="closeSettings()">Close</button>
+                <button class="settings-btn power-btn" onclick="showPowerPopup()"><span class="power-icon"></span></button>
             </div>
         </div>
 
         <!-- Display Page -->
         <div id="settings-display" class="settings-page" style="display:none">
             <h1 id="display-title">Display</h1>
-            <div class="brightness-control">
-                <label>Brightness</label>
-                <input type="range" id="brightness-slider" min="0" max="100" value="100"
-                       oninput="setBrightness(this.value)">
-                <span class="brightness-value" id="brightness-value">100%</span>
-                <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
-            </div>
-            <div class="schedule-control">
-                <label id="interval-label">Interval</label>
-                <div class="time-picker">
-                    <div class="time-digit">
-                        <button class="time-btn" onclick="adjustInterval(10)">+</button>
-                        <span class="time-val" id="interval-val">300</span>
-                        <button class="time-btn" onclick="adjustInterval(-10)">-</button>
-                    </div>
-                </div>
-                <span style="color:#888;font-size:16px">s</span>
-            </div>
-            <div class="schedule-control">
-                <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
-                <div class="time-picker">
-                    <div class="time-digit">
-                        <button class="time-btn" onclick="adjustTime('off','h',1)">+</button>
-                        <span class="time-val" id="off-h">22</span>
-                        <button class="time-btn" onclick="adjustTime('off','h',-1)">-</button>
-                    </div>
-                    <span class="time-colon">:</span>
-                    <div class="time-digit">
-                        <button class="time-btn" onclick="adjustTime('off','m',5)">+</button>
-                        <span class="time-val" id="off-m">00</span>
-                        <button class="time-btn" onclick="adjustTime('off','m',-5)">-</button>
-                    </div>
-                </div>
-                <span class="sep">-</span>
-                <div class="time-picker">
-                    <div class="time-digit">
-                        <button class="time-btn" onclick="adjustTime('on','h',1)">+</button>
-                        <span class="time-val" id="on-h">07</span>
-                        <button class="time-btn" onclick="adjustTime('on','h',-1)">-</button>
-                    </div>
-                    <span class="time-colon">:</span>
-                    <div class="time-digit">
-                        <button class="time-btn" onclick="adjustTime('on','m',5)">+</button>
-                        <span class="time-val" id="on-m">00</span>
-                        <button class="time-btn" onclick="adjustTime('on','m',-5)">-</button>
-                    </div>
+            <div class="settings-section">
+                <div class="settings-section-title" id="brightness-title">Brightness</div>
+                <div class="brightness-control">
+                    <input type="range" id="brightness-slider" min="0" max="100" value="100"
+                           oninput="setBrightness(this.value)">
+                    <span class="brightness-value" id="brightness-value">100%</span>
+                    <button class="auto-btn" id="auto-brightness-btn" onclick="toggleAutoBrightness()">Auto</button>
                 </div>
             </div>
-            <div class="orientation-control">
-                <label>Orientation</label>
-                <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
-                <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
-                <span class="save-msg" id="orient-saved">Saved</span>
+            <div class="settings-section">
+                <div class="settings-section-title" id="interval-title">Interval</div>
+                <div class="schedule-control">
+                    <div class="time-picker">
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustInterval(10)">+</button>
+                            <span class="time-val" id="interval-val">300</span>
+                            <button class="time-btn" onclick="adjustInterval(-10)">-</button>
+                        </div>
+                    </div>
+                    <span style="color:#888;font-size:16px">s</span>
+                </div>
             </div>
-            <div class="orientation-control">
-                <label id="lang-label">Language</label>
-                <button class="orient-btn" id="lang-en" onclick="setLanguage('en')">🇬🇧</button>
-                <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">🇩🇪</button>
+            <div class="settings-section">
+                <div class="settings-section-title" id="sleep-title">Sleep</div>
+                <div class="schedule-control">
+                    <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
+                    <div class="time-picker">
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustTime('off','h',1)">+</button>
+                            <span class="time-val" id="off-h">22</span>
+                            <button class="time-btn" onclick="adjustTime('off','h',-1)">-</button>
+                        </div>
+                        <span class="time-colon">:</span>
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustTime('off','m',5)">+</button>
+                            <span class="time-val" id="off-m">00</span>
+                            <button class="time-btn" onclick="adjustTime('off','m',-5)">-</button>
+                        </div>
+                    </div>
+                    <span class="sep">-</span>
+                    <div class="time-picker">
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustTime('on','h',1)">+</button>
+                            <span class="time-val" id="on-h">07</span>
+                            <button class="time-btn" onclick="adjustTime('on','h',-1)">-</button>
+                        </div>
+                        <span class="time-colon">:</span>
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustTime('on','m',5)">+</button>
+                            <span class="time-val" id="on-m">00</span>
+                            <button class="time-btn" onclick="adjustTime('on','m',-5)">-</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="weekday-row" id="weekday-row">
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,1)">Mo</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,2)">Tu</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,3)">We</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,4)">Th</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,5)">Fr</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,6)">Sa</button>
+                    <button class="weekday-toggle active" onclick="toggleWeekday(this,0)">Su</button>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div class="orientation-control">
+                    <label>Orientation</label>
+                    <button class="orient-btn" id="orient-h" onclick="setOrientation('horizontal')">Horizontal</button>
+                    <button class="orient-btn" id="orient-v" onclick="setOrientation('vertical')">Vertical</button>
+                    <span class="save-msg" id="orient-saved">Saved</span>
+                </div>
+                <div class="orientation-control">
+                    <label id="lang-label">Language</label>
+                    <button class="orient-btn" id="lang-en" onclick="setLanguage('en')">🇬🇧</button>
+                    <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">🇩🇪</button>
+                </div>
             </div>
             <div class="settings-buttons">
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
@@ -600,9 +720,11 @@
 
         <!-- Albums Page -->
         <div id="settings-albums" class="settings-page" style="display:none">
-            <h1 id="albums-title">FolderSync</h1>
-            <div id="album-list" class="album-list">
-                <div style="color:#888;font-size:18px">Loading albums...</div>
+            <h1 id="albums-title">Photo Albums</h1>
+            <div class="settings-section">
+                <div id="album-list" class="album-list">
+                    <div style="color:#888;font-size:16px">Loading albums...</div>
+                </div>
             </div>
             <div class="settings-buttons">
                 <button class="settings-btn" onclick="openFolderSync()">Edit</button>
@@ -650,7 +772,6 @@
                 brightness: 'Brightness',
                 auto: 'Auto',
                 sleep: 'Sleep',
-                foldersync: 'FolderSync',
                 close: 'Close',
                 reboot: 'Reboot',
                 shutdown: 'Shutdown',
@@ -663,8 +784,6 @@
                 password: 'Password:',
                 open_setup: 'Then open the setup page on your phone',
                 not_connected: 'Not connected',
-                confirm_shutdown: 'Shutdown Raspberry Pi?',
-                confirm_reboot: 'Reboot Raspberry Pi?',
                 shutting_down: 'Shutting down...',
                 rebooting: 'Rebooting...',
                 sync_now: 'Sync Now',
@@ -676,6 +795,8 @@
                 cancel: 'Cancel',
                 no_albums: 'No albums configured',
                 loading_albums: 'Loading albums...',
+                photo_albums: 'Photo Albums',
+                weekdays: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
             },
             de: {
                 settings: 'Einstellungen',
@@ -694,7 +815,6 @@
                 brightness: 'Helligkeit',
                 auto: 'Auto',
                 sleep: 'Schlaf',
-                foldersync: 'FolderSync',
                 close: 'Schlie\u00dfen',
                 reboot: 'Neustart',
                 shutdown: 'Ausschalten',
@@ -707,8 +827,6 @@
                 password: 'Passwort:',
                 open_setup: 'Dann die Einrichtungsseite auf dem Handy \u00f6ffnen',
                 not_connected: 'Nicht verbunden',
-                confirm_shutdown: 'Raspberry Pi ausschalten?',
-                confirm_reboot: 'Raspberry Pi neustarten?',
                 shutting_down: 'Wird ausgeschaltet...',
                 rebooting: 'Neustart...',
                 sync_now: 'Sync',
@@ -720,6 +838,8 @@
                 cancel: 'Abbrechen',
                 no_albums: 'Keine Alben konfiguriert',
                 loading_albums: 'Lade Alben...',
+                photo_albums: 'Fotoalben',
+                weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
             }
         };
         let lang = localStorage.getItem('frame-language') || 'en';
@@ -738,26 +858,32 @@
             var labelKeys = ['hostname','ip','tailscale','wifi','cpu_temp','disk','photos','sync'];
             labels.forEach(function(el, i) { if (labelKeys[i]) el.textContent = t(labelKeys[i]); });
             var mainBtns = document.querySelectorAll('#settings-main .settings-buttons .settings-btn');
-            mainBtns[0].textContent = '\uD83D\uDD04 ' + t('sync_now');
-            mainBtns[1].textContent = t('foldersync');
+            mainBtns[0].innerHTML = '&#x1F504; ' + t('sync_now');
+            mainBtns[1].textContent = t('photo_albums');
             mainBtns[2].textContent = t('display');
-            // mainBtns[3] is ⏻ — no translation needed
-            mainBtns[4].textContent = t('close');
+            // mainBtns[3] is power icon — no translation
             // Display page
             document.getElementById('display-title').textContent = t('display');
-            document.querySelector('.brightness-control > label').textContent = t('brightness');
+            document.getElementById('brightness-title').textContent = t('brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
-            document.getElementById('interval-label').textContent = t('interval');
+            document.getElementById('interval-title').textContent = t('interval');
+            document.getElementById('sleep-title').textContent = t('sleep');
             document.getElementById('schedule-btn').textContent = t('sleep');
             document.querySelector('.orientation-control > label').textContent = t('orientation');
             document.getElementById('orient-h').textContent = t('horizontal');
             document.getElementById('orient-v').textContent = t('vertical');
             document.getElementById('orient-saved').textContent = t('saved');
             document.querySelector('#lang-label').textContent = t('language');
+            // Weekday labels
+            var wdLabels = t('weekdays');
+            var wdBtns = document.querySelectorAll('#weekday-row .weekday-toggle');
+            if (wdLabels && wdBtns.length === 7) {
+                for (var i = 0; i < 7; i++) wdBtns[i].textContent = wdLabels[i];
+            }
             var displayBtns = document.querySelectorAll('#settings-display .settings-buttons .settings-btn');
             displayBtns[0].textContent = t('back');
             // Albums page
-            document.getElementById('albums-title').textContent = t('foldersync');
+            document.getElementById('albums-title').textContent = t('photo_albums');
             var albumBtns = document.querySelectorAll('#settings-albums .settings-buttons .settings-btn');
             albumBtns[0].textContent = t('edit');
             albumBtns[1].textContent = t('back');
@@ -1139,6 +1265,29 @@
             }).catch(() => {});
         }
 
+        // Weekday toggles: day indices match JS getDay() (0=Sun,1=Mon,...6=Sat)
+        // HTML order: Mo(1) Tu(2) We(3) Th(4) Fr(5) Sa(6) Su(0)
+        let scheduleWeekdays = [0, 1, 2, 3, 4, 5, 6]; // all days active by default
+
+        function toggleWeekday(btn, day) {
+            btn.classList.toggle('active');
+            if (btn.classList.contains('active')) {
+                if (!scheduleWeekdays.includes(day)) scheduleWeekdays.push(day);
+            } else {
+                scheduleWeekdays = scheduleWeekdays.filter(d => d !== day);
+            }
+            saveSchedule();
+        }
+
+        function updateWeekdayUI() {
+            // HTML order: Mo(1) Tu(2) We(3) Th(4) Fr(5) Sa(6) Su(0)
+            const dayMap = [1, 2, 3, 4, 5, 6, 0];
+            const btns = document.querySelectorAll('#weekday-row .weekday-toggle');
+            btns.forEach((btn, i) => {
+                btn.classList.toggle('active', scheduleWeekdays.includes(dayMap[i]));
+            });
+        }
+
         async function loadSchedule() {
             try {
                 const resp = await fetch('/schedule');
@@ -1152,6 +1301,12 @@
                     } else {
                         btn.classList.remove('active');
                     }
+                    if (data.weekdays) {
+                        scheduleWeekdays = data.weekdays;
+                    } else {
+                        scheduleWeekdays = [0, 1, 2, 3, 4, 5, 6];
+                    }
+                    updateWeekdayUI();
                 }
             } catch (e) {
                 console.error('Failed to load schedule:', e);
@@ -1187,7 +1342,7 @@
                 await fetch('/schedule', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ enabled, off_time, on_time }),
+                    body: JSON.stringify({ enabled, off_time, on_time, weekdays: scheduleWeekdays }),
                 });
             } catch (e) {
                 console.error('Failed to save schedule:', e);
