@@ -1054,12 +1054,20 @@
                     listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('no_albums') + '</div>';
                     return;
                 }
-                listEl.innerHTML = albums.map(a =>
-                    '<div class="album-item">' +
-                    '<span class="album-source">' + a.source + '</span>' +
-                    '<span class="album-name">' + a.name + '</span>' +
-                    '</div>'
-                ).join('');
+                listEl.innerHTML = '';
+                albums.forEach(a => {
+                    const item = document.createElement('div');
+                    item.className = 'album-item';
+                    const src = document.createElement('span');
+                    src.className = 'album-source';
+                    src.textContent = a.source;
+                    const name = document.createElement('span');
+                    name.className = 'album-name';
+                    name.textContent = a.name;
+                    item.appendChild(src);
+                    item.appendChild(name);
+                    listEl.appendChild(item);
+                });
             } catch (e) {
                 listEl.innerHTML = '<div style="color:#f66;font-size:18px">Error loading albums</div>';
             }
@@ -1100,6 +1108,7 @@
         }
 
         let syncPollId = null;
+        let syncProgressActive = false;
 
         async function updateSyncStatus() {
             try {
@@ -1111,6 +1120,12 @@
                     if (sync.pending != null) syncText += ` (${sync.pending} left)`;
                     // Poll while sync is running
                     if (!syncPollId) syncPollId = setInterval(updateSyncStatus, 3000);
+                    // Update progress bar if active
+                    if (syncProgressActive && sync.total > 0) {
+                        const bar = document.getElementById('sync-progress-bar');
+                        const done = sync.total - (sync.pending || 0);
+                        bar.style.width = Math.max(2, (done / sync.total) * 100) + '%';
+                    }
                 } else {
                     if (sync.error) {
                         syncText = 'error';
@@ -1119,14 +1134,30 @@
                     }
                     // Stop polling when sync is idle
                     if (syncPollId) { clearInterval(syncPollId); syncPollId = null; }
+                    // Finish progress bar
+                    if (syncProgressActive) {
+                        syncProgressActive = false;
+                        const bar = document.getElementById('sync-progress-bar');
+                        bar.style.width = '100%';
+                        bar.classList.add('done');
+                        setTimeout(() => {
+                            bar.classList.remove('active', 'done');
+                            bar.style.width = '0%';
+                        }, 3000);
+                        init();
+                    }
                 }
                 document.getElementById('info-sync').textContent = syncText;
             } catch (e) {
                 document.getElementById('info-sync').textContent = '--';
+                if (syncProgressActive) {
+                    syncProgressActive = false;
+                    const bar = document.getElementById('sync-progress-bar');
+                    bar.classList.remove('active');
+                    bar.style.width = '0%';
+                }
             }
         }
-
-        let syncProgressPollId = null;
 
         function triggerSyncFromViewer() {
             if (!confirm(t('confirm_sync'))) return;
@@ -1134,46 +1165,15 @@
             .then(r => r.json())
             .then(data => {
                 if (data.ok) {
-                    startSyncProgressBar();
+                    syncProgressActive = true;
+                    const bar = document.getElementById('sync-progress-bar');
+                    bar.style.width = '0%';
+                    bar.classList.remove('done');
+                    bar.classList.add('active');
+                    updateSyncStatus();
                 }
             })
             .catch(() => {});
-        }
-
-        function startSyncProgressBar() {
-            const bar = document.getElementById('sync-progress-bar');
-            bar.style.width = '0%';
-            bar.classList.remove('done');
-            bar.classList.add('active');
-            if (syncProgressPollId) clearInterval(syncProgressPollId);
-            syncProgressPollId = setInterval(() => {
-                fetch('/sync/status')
-                .then(r => r.json())
-                .then(s => {
-                    if (s.running && s.total > 0) {
-                        const done = s.total - (s.pending || 0);
-                        const pct = Math.max(2, (done / s.total) * 100);
-                        bar.style.width = pct + '%';
-                    } else if (!s.running) {
-                        clearInterval(syncProgressPollId);
-                        syncProgressPollId = null;
-                        bar.style.width = '100%';
-                        bar.classList.add('done');
-                        setTimeout(() => {
-                            bar.classList.remove('active', 'done');
-                            bar.style.width = '0%';
-                        }, 3000);
-                        // Reload photo list
-                        init();
-                    }
-                })
-                .catch(() => {
-                    clearInterval(syncProgressPollId);
-                    syncProgressPollId = null;
-                    bar.classList.remove('active');
-                    bar.style.width = '0%';
-                });
-            }, 3000);
         }
 
         function closeSettings() {

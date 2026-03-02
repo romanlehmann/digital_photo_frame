@@ -1116,9 +1116,17 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.error(f"Error handling reboot: {e}")
             self.send_error(500, str(e))
 
+    # Endpoints that are polled frequently — log at DEBUG to reduce noise
+    _quiet_paths = frozenset(('/sync/status', '/schedule', '/sysinfo', '/brightness'))
+
     def log_message(self, format, *args):
-        """Override to use Python logging."""
-        logger.info(f"{self.address_string()} - {format % args}")
+        """Override to use Python logging. Suppress noisy polling endpoints."""
+        msg = f"{self.address_string()} - {format % args}"
+        path = self.path.split('?')[0] if hasattr(self, 'path') else ''
+        if path in self._quiet_paths:
+            logger.debug(msg)
+        else:
+            logger.info(msg)
 
 
 def create_handler(photos_dir, viewer_dir, slideshow_config=None):
