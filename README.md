@@ -79,8 +79,6 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-Note the NAS's Tailscale IP (e.g. `100.101.43.67`).
-
 ### 3. Configure
 
 Edit `config_frame.yaml`:
@@ -91,7 +89,6 @@ frame:
   orientation: "horizontal"    # or "vertical"
 
 synology:
-  local_api_base: "https://100.101.43.67:5443"
   share_urls:
     - "https://photos.example.com/mo/sharing/AbCdEfG"
   share_passphrases:
@@ -156,9 +153,6 @@ Sleep mode stops Chromium (frees ~125MB RAM) and displays a black screen:
 2. Fills framebuffer with black (keeps HDMI signal active — no blue "no signal")
 3. Turns off backlight via DDC/CI (`ddcutil setvcp 10 0`)
 4. Triggers photo sync (more RAM available with Chromium stopped)
-5. Listens for touch input to wake
-
-Wake restores backlight and restarts the display service.
 
 ## Troubleshooting
 
