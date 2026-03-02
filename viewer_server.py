@@ -307,7 +307,11 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         
-        if path == '/' or path == '/index.html':
+        if path == '/favicon.ico':
+            self.send_response(204)
+            self.end_headers()
+            return
+        elif path == '/' or path == '/index.html':
             # Serve viewer HTML
             self.serve_viewer()
         elif path == '/config':
@@ -1117,7 +1121,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.send_error(500, str(e))
 
     # Endpoints that are polled frequently — log at DEBUG to reduce noise
-    _quiet_paths = frozenset(('/sync/status', '/schedule', '/sysinfo', '/brightness'))
+    _quiet_paths = frozenset(('/sync/status', '/schedule', '/sysinfo', '/brightness', '/favicon.ico'))
 
     def log_message(self, format, *args):
         """Override to use Python logging. Suppress noisy polling endpoints."""
