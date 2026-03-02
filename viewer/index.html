@@ -1097,7 +1097,6 @@
                 console.error('Failed to load sysinfo:', e);
             }
             updateSyncStatus();
-            syncPollId = setInterval(updateSyncStatus, 3000);
         }
 
         let syncPollId = null;
@@ -1110,10 +1109,16 @@
                 if (sync.running) {
                     syncText = sync.phase;
                     if (sync.pending != null) syncText += ` (${sync.pending} left)`;
-                } else if (sync.error) {
-                    syncText = 'error';
-                } else if (sync.pending > 0) {
-                    syncText = `idle (${sync.pending} queued)`;
+                    // Poll while sync is running
+                    if (!syncPollId) syncPollId = setInterval(updateSyncStatus, 3000);
+                } else {
+                    if (sync.error) {
+                        syncText = 'error';
+                    } else if (sync.pending > 0) {
+                        syncText = `idle (${sync.pending} queued)`;
+                    }
+                    // Stop polling when sync is idle
+                    if (syncPollId) { clearInterval(syncPollId); syncPollId = null; }
                 }
                 document.getElementById('info-sync').textContent = syncText;
             } catch (e) {
