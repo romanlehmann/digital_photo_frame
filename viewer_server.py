@@ -1122,12 +1122,13 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
     # Endpoints that are polled frequently — log at DEBUG to reduce noise
     _quiet_paths = frozenset(('/sync/status', '/schedule', '/sysinfo', '/brightness', '/favicon.ico'))
+    _quiet_prefixes = ('/photos/',)
 
     def log_message(self, format, *args):
         """Override to use Python logging. Suppress noisy polling endpoints."""
         msg = f"{self.address_string()} - {format % args}"
         path = self.path.split('?')[0] if hasattr(self, 'path') else ''
-        if path in self._quiet_paths:
+        if path in self._quiet_paths or any(path.startswith(p) for p in self._quiet_prefixes):
             logger.debug(msg)
         else:
             logger.info(msg)
