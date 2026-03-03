@@ -56,6 +56,7 @@ su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip 
 if [ ! -f "${REPO_DIR}/config_frame.yaml" ]; then
     echo "Creating default config..."
     cat > "${REPO_DIR}/config_frame.yaml" << 'YAML'
+setup_complete: false
 frame:
   name: photo-frame
   orientation: horizontal
@@ -77,7 +78,6 @@ slideshow:
   fade_duration: 1.0
   transition: fade
 synology:
-  local_api_base: https://100.101.43.67:5443
   share_urls: []
   share_passphrases: []
 google_photos:
@@ -85,6 +85,8 @@ google_photos:
 immich:
   share_urls: []
   share_passphrases: []
+energy_save:
+  method: ddcci
 logging:
   level: INFO
   file: /var/log/photo_frame.log
@@ -139,7 +141,7 @@ Type=simple
 User=${FRAME_USER}
 WorkingDirectory=${REPO_DIR}
 Environment="PORT=8080"
-ExecStart=${REPO_DIR}/venv/bin/python ${REPO_DIR}/viewer_server.py ${REPO_DIR}/config_frame.yaml
+ExecStart=${REPO_DIR}/venv/bin/python -m frame.server ${REPO_DIR}/config_frame.yaml
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -224,6 +226,7 @@ echo "Setting up sudoers..."
 cat > /etc/sudoers.d/photo-frame << EOF
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /usr/sbin/iptables
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /usr/sbin/ddcutil
+${FRAME_USER} ALL=(ALL) NOPASSWD: /usr/bin/wlopm
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /bin/systemctl stop photo_frame_cage
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /bin/systemctl start photo_frame_cage
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /bin/systemctl restart photo_frame_cage
@@ -231,6 +234,8 @@ ${FRAME_USER} ALL=(ALL) NOPASSWD: /bin/dd
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /usr/bin/setterm
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /sbin/shutdown
 ${FRAME_USER} ALL=(ALL) NOPASSWD: /sbin/reboot
+${FRAME_USER} ALL=(ALL) NOPASSWD: /usr/bin/tailscale up *
+${FRAME_USER} ALL=(ALL) NOPASSWD: /bin/sh -c curl -fsSL https\://tailscale.com/install.sh | sh
 EOF
 chmod 440 /etc/sudoers.d/photo-frame
 

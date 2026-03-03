@@ -82,6 +82,19 @@
             opacity: 1;
         }
 
+        #clock-overlay {
+            position: fixed;
+            font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+            font-size: 48px;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.8);
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+            z-index: 10;
+            pointer-events: none;
+            display: none;
+        }
+        #clock-overlay.visible { display: block; }
+
         #sync-progress-bar {
             position: fixed;
             bottom: 0;
@@ -597,6 +610,7 @@
     <div id="loading"></div>
     <div id="error"></div>
     <div id="slideshow"></div>
+    <div id="clock-overlay">00:00</div>
     <div id="sleep-overlay"></div>
 
     <div id="settings-overlay">
@@ -713,6 +727,26 @@
                     <button class="orient-btn" id="lang-de" onclick="setLanguage('de')">🇩🇪</button>
                 </div>
             </div>
+            <div class="settings-section">
+                <div class="orientation-control">
+                    <label id="clock-label">Clock</label>
+                    <button class="orient-btn" id="clock-off" onclick="setShowClock(false)">Off</button>
+                    <button class="orient-btn" id="clock-on" onclick="setShowClock(true)">On</button>
+                </div>
+                <div class="orientation-control" id="clock-size-row">
+                    <label id="clock-size-label">Size</label>
+                    <button class="orient-btn" id="clock-s" onclick="setClockSize('s')">S</button>
+                    <button class="orient-btn" id="clock-m" onclick="setClockSize('m')">M</button>
+                    <button class="orient-btn" id="clock-l" onclick="setClockSize('l')">L</button>
+                </div>
+                <div class="orientation-control" id="clock-pos-row">
+                    <label id="clock-pos-label">Position</label>
+                    <button class="orient-btn" id="clock-tl" onclick="setClockPos('tl')">&#8598;</button>
+                    <button class="orient-btn" id="clock-tr" onclick="setClockPos('tr')">&#8599;</button>
+                    <button class="orient-btn" id="clock-bl" onclick="setClockPos('bl')">&#8601;</button>
+                    <button class="orient-btn" id="clock-br" onclick="setClockPos('br')">&#8600;</button>
+                </div>
+            </div>
             <div class="settings-buttons">
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
             </div>
@@ -771,7 +805,9 @@
                 vertical: 'Vertical',
                 brightness: 'Brightness',
                 auto: 'Auto',
-                sleep: 'Sleep',
+                sleep: 'Sleep Mode',
+                sleep_active: 'Active',
+                sleep_inactive: 'Inactive',
                 close: 'Close',
                 reboot: 'Reboot',
                 shutdown: 'Shutdown',
@@ -796,6 +832,11 @@
                 no_albums: 'No albums configured',
                 loading_albums: 'Loading albums...',
                 photo_albums: 'Photo Albums',
+                clock: 'Clock',
+                clock_size: 'Size',
+                clock_pos: 'Position',
+                on: 'On',
+                off: 'Off',
                 weekdays: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
             },
             de: {
@@ -814,7 +855,9 @@
                 vertical: 'Vertikal',
                 brightness: 'Helligkeit',
                 auto: 'Auto',
-                sleep: 'Schlaf',
+                sleep: 'Schlafmodus',
+                sleep_active: 'Aktiv',
+                sleep_inactive: 'Inaktiv',
                 close: 'Schlie\u00dfen',
                 reboot: 'Neustart',
                 shutdown: 'Ausschalten',
@@ -839,6 +882,11 @@
                 no_albums: 'Keine Alben konfiguriert',
                 loading_albums: 'Lade Alben...',
                 photo_albums: 'Fotoalben',
+                clock: 'Uhr',
+                clock_size: 'Gr\u00f6\u00dfe',
+                clock_pos: 'Position',
+                on: 'An',
+                off: 'Aus',
                 weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
             }
         };
@@ -868,12 +916,18 @@
             document.getElementById('auto-brightness-btn').textContent = t('auto');
             document.getElementById('interval-title').textContent = t('interval');
             document.getElementById('sleep-title').textContent = t('sleep');
-            document.getElementById('schedule-btn').textContent = t('sleep');
+            var schedBtn = document.getElementById('schedule-btn');
+            schedBtn.textContent = schedBtn.classList.contains('active') ? t('sleep_active') : t('sleep_inactive');
             document.querySelector('.orientation-control > label').textContent = t('orientation');
             document.getElementById('orient-h').textContent = t('horizontal');
             document.getElementById('orient-v').textContent = t('vertical');
             document.getElementById('orient-saved').textContent = t('saved');
             document.querySelector('#lang-label').textContent = t('language');
+            document.getElementById('clock-label').textContent = t('clock');
+            document.getElementById('clock-off').textContent = t('off');
+            document.getElementById('clock-on').textContent = t('on');
+            document.getElementById('clock-size-label').textContent = t('clock_size');
+            document.getElementById('clock-pos-label').textContent = t('clock_pos');
             // Weekday labels
             var wdLabels = t('weekdays');
             var wdBtns = document.querySelectorAll('#weekday-row .weekday-toggle');
@@ -913,6 +967,91 @@
         let previousImage = null;
         let intervalId = null;
         let photoHistory = [];  // stack of previously shown indices
+
+        // --- Clock overlay ---
+        let showClock = false;
+        let clockSize = localStorage.getItem('frame-clock-size') || 'm';
+        let clockPos = localStorage.getItem('frame-clock-pos') || 'br';
+        let clockTimeoutId = null;
+        let clockIntervalId = null;
+        const clockSizes = { s: '48px', m: '72px', l: '96px' };
+        const clockPositions = {
+            tl: { top: '24px', bottom: '', left: '32px', right: '' },
+            tr: { top: '24px', bottom: '', left: '', right: '32px' },
+            bl: { top: '', bottom: '24px', left: '32px', right: '' },
+            br: { top: '', bottom: '24px', left: '', right: '32px' }
+        };
+
+        function setShowClock(on) {
+            showClock = on;
+            localStorage.setItem('frame-show-clock', on ? '1' : '0');
+            document.getElementById('clock-off').classList.toggle('active', !on);
+            document.getElementById('clock-on').classList.toggle('active', on);
+            const el = document.getElementById('clock-overlay');
+            if (on) {
+                el.classList.add('visible');
+                startClock();
+            } else {
+                el.classList.remove('visible');
+                stopClock();
+            }
+        }
+
+        function startClock() {
+            stopClock();
+            updateClock();
+            // Align to next minute boundary
+            const now = new Date();
+            const msUntilNextMin = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+            clockTimeoutId = setTimeout(function() {
+                updateClock();
+                clockIntervalId = setInterval(updateClock, 60000);
+            }, msUntilNextMin);
+        }
+
+        function stopClock() {
+            if (clockTimeoutId) { clearTimeout(clockTimeoutId); clockTimeoutId = null; }
+            if (clockIntervalId) { clearInterval(clockIntervalId); clockIntervalId = null; }
+        }
+
+        function updateClock() {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('clock-overlay').textContent = hh + ':' + mm;
+        }
+
+        function setClockSize(size) {
+            clockSize = size;
+            localStorage.setItem('frame-clock-size', size);
+            document.getElementById('clock-overlay').style.fontSize = clockSizes[size];
+            document.getElementById('clock-s').classList.toggle('active', size === 's');
+            document.getElementById('clock-m').classList.toggle('active', size === 'm');
+            document.getElementById('clock-l').classList.toggle('active', size === 'l');
+        }
+
+        function setClockPos(pos) {
+            clockPos = pos;
+            localStorage.setItem('frame-clock-pos', pos);
+            var el = document.getElementById('clock-overlay');
+            var p = clockPositions[pos];
+            el.style.top = p.top; el.style.bottom = p.bottom;
+            el.style.left = p.left; el.style.right = p.right;
+            ['tl','tr','bl','br'].forEach(function(k) {
+                document.getElementById('clock-' + k).classList.toggle('active', k === pos);
+            });
+        }
+
+        // Init clock from localStorage
+        document.getElementById('clock-overlay').style.fontSize = clockSizes[clockSize];
+        (function() { var p = clockPositions[clockPos]; var el = document.getElementById('clock-overlay');
+            el.style.top = p.top; el.style.bottom = p.bottom; el.style.left = p.left; el.style.right = p.right;
+        })();
+        if (localStorage.getItem('frame-show-clock') === '1') {
+            showClock = true;
+            document.getElementById('clock-overlay').classList.add('visible');
+            startClock();
+        }
 
         // Setup hot corner - 3 second hold to open settings
         const hotCorner = document.getElementById('hot-corner');
@@ -1090,6 +1229,14 @@
             loadOrientation();
             loadInterval();
             loadSchedule();
+            document.getElementById('clock-off').classList.toggle('active', !showClock);
+            document.getElementById('clock-on').classList.toggle('active', showClock);
+            document.getElementById('clock-s').classList.toggle('active', clockSize === 's');
+            document.getElementById('clock-m').classList.toggle('active', clockSize === 'm');
+            document.getElementById('clock-l').classList.toggle('active', clockSize === 'l');
+            ['tl','tr','bl','br'].forEach(function(k) {
+                document.getElementById('clock-' + k).classList.toggle('active', k === clockPos);
+            });
 
             try {
                 const resp = await fetch('/sysinfo');
@@ -1303,8 +1450,10 @@
                     const btn = document.getElementById('schedule-btn');
                     if (data.enabled) {
                         btn.classList.add('active');
+                        btn.textContent = t('sleep_active');
                     } else {
                         btn.classList.remove('active');
+                        btn.textContent = t('sleep_inactive');
                     }
                     if (data.weekdays) {
                         scheduleWeekdays = data.weekdays;
@@ -1336,6 +1485,7 @@
         function toggleSchedule() {
             const btn = document.getElementById('schedule-btn');
             btn.classList.toggle('active');
+            btn.textContent = btn.classList.contains('active') ? t('sleep_active') : t('sleep_inactive');
             saveSchedule();
         }
 
@@ -1619,32 +1769,42 @@
         }
 
         // QR code generation — server-side to avoid bundling a JS library
+        var _qrCache = {};
+
         function generateQR(text, canvas, cellSize) {
             cellSize = cellSize || 8;
+            if (_qrCache[text]) {
+                drawQR(_qrCache[text], canvas, cellSize);
+                return;
+            }
             fetch('/api/qrcode?text=' + encodeURIComponent(text))
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    var modules = data.modules;
-                    var count = modules.length;
-                    var margin = 4;
-                    var size = (count + margin * 2) * cellSize;
-                    canvas.width = size;
-                    canvas.height = size;
-                    var ctx = canvas.getContext('2d');
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, size, size);
-                    ctx.fillStyle = '#000000';
-                    for (var r = 0; r < count; r++) {
-                        for (var c = 0; c < count; c++) {
-                            if (modules[r][c]) {
-                                ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
-                            }
-                        }
-                    }
+                    _qrCache[text] = data.modules;
+                    drawQR(data.modules, canvas, cellSize);
                 })
                 .catch(function(e) {
                     console.error('QR generation failed:', e);
                 });
+        }
+
+        function drawQR(modules, canvas, cellSize) {
+            var count = modules.length;
+            var margin = 4;
+            var size = (count + margin * 2) * cellSize;
+            canvas.width = size;
+            canvas.height = size;
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = '#000000';
+            for (var r = 0; r < count; r++) {
+                for (var c = 0; c < count; c++) {
+                    if (modules[r][c]) {
+                        ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
         }
 
         function openFolderSync() {
