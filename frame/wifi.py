@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """WiFi management: connectivity check, hotspot fallback, captive portal support."""
 
 import logging
