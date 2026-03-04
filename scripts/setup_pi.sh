@@ -11,21 +11,35 @@ FRAME_HOME="$(dirname "$REPO_DIR")"
 FRAME_USER="$(basename "$FRAME_HOME")"
 PHOTOS_DIR="/srv/frame/photos"
 
-echo "=== Photo Frame Setup ==="
+# Log to boot partition (FAT32) so it's readable from Windows for debugging
+SETUP_LOG="/boot/firmware/setup_log.txt"
+log() {
+    echo "$(date '+%H:%M:%S') $*" | tee -a "$SETUP_LOG"
+}
+
+log "=== Photo Frame Setup ==="
+log "User: ${FRAME_USER}, Repo: ${REPO_DIR}"
 
 # ---- Verify ----
 if [ "$(id -u)" -ne 0 ]; then
-    echo "ERROR: must run as root"
+    log "ERROR: must run as root"
     exit 1
 fi
 if [ ! -d "$REPO_DIR" ]; then
-    echo "ERROR: repo not found at $REPO_DIR"
+    log "ERROR: repo not found at $REPO_DIR"
     exit 1
 fi
 
 # ---- Check internet (needed for apt-get) ----
-echo "Checking internet connectivity..."
+log "Checking internet connectivity..."
 if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
+    log "No internet. Preparing WiFi hotspot..."
+    # Unblock WiFi (may be soft-blocked on fresh install without WiFi config)
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli radio wifi on 2>/dev/null || true
+    sleep 2
+    log "WiFi radio state: $(nmcli radio wifi 2>&1)"
+    log "WiFi device state: $(nmcli -t -f DEVICE,STATE device status 2>&1 | grep wifi || echo 'no wifi device')"
     echo ""
     echo "============================================"
     echo "  No internet connection!"
@@ -36,13 +50,20 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     echo "============================================"
     echo ""
     # Minimal WiFi setup server (stdlib only, no pip needed)
-    python3 "${REPO_DIR}/scripts/wifi_setup_server.py"
-    echo "Internet connected! Continuing setup..."
+    log "Starting wifi_setup_server.py..."
+    python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG" || {
+        log "ERROR: wifi_setup_server.py failed (exit $?)"
+        log "Waiting for network (plug in Ethernet or power-cycle with WiFi configured)..."
+        while ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; do
+            sleep 10
+        done
+    }
+    log "Internet connected! Continuing setup..."
     sleep 2
 fi
 
 # ---- System packages ----
-echo "Installing packages..."
+log "Installing packages..."
 apt-get update -qq
 apt-get install -y -qq \
     git python3-venv python3-dev \
@@ -69,7 +90,7 @@ fi
 chown -R "${FRAME_USER}:${FRAME_USER}" "${PHOTOS_DIR}"
 
 # ---- Python venv ----
-echo "Setting up Python venv..."
+log "Setting up Python venv..."
 cd "$REPO_DIR"
 su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt"
 
@@ -150,7 +171,7 @@ sed -i "s|\$REPO_DIR_PLACEHOLDER|${REPO_DIR}|g" "${REPO_DIR}/labwc/autostart"
 chmod +x "${REPO_DIR}/labwc/autostart"
 
 # ---- Systemd services ----
-echo "Installing systemd services..."
+log "Installing systemd services..."
 
 cat > /etc/systemd/system/photo_frame_server.service << EOF
 [Unit]
@@ -276,7 +297,7 @@ fi
 systemctl disable getty@tty1 2>/dev/null || true
 
 # ---- Enable services ----
-echo "Enabling services..."
+log "Enabling services..."
 systemctl daemon-reload
 systemctl enable seatd photo_frame_server photo_frame_cage photo_frame_update.service photo_frame_update.timer
 systemctl start seatd 2>/dev/null || true
@@ -315,8 +336,8 @@ if ! lsusb | grep -q "$TOUCH_ID"; then
     sleep 1
 fi
 
-echo ""
-echo "=== Setup complete! ==="
+log ""
+log "=== Setup complete! ==="
 echo "The frame will start automatically on next boot."
 echo "If WiFi was not configured, the frame will create a"
 echo "'PhotoFrame-Setup' hotspot for WiFi configuration."
