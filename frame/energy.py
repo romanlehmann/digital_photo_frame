@@ -245,7 +245,9 @@ class EnergySaveManager:
                 # Turn off backlight via configured method
                 self._backlight_off()
                 logger.info(f"Sleep: stopped display ({self.method}), framebuffer black")
-                # Trigger photo sync during sleep (cage stopped = more RAM)
+                # Auto-update from GitHub (cage stopped = more RAM for git/pip)
+                self._run_update()
+                # Trigger photo sync during sleep
                 syncer = self.app.syncer if self.app else None
                 if syncer:
                     logger.info("Sleep: triggering photo sync")
@@ -275,6 +277,32 @@ class EnergySaveManager:
                 logger.info(f"Wake: started display service ({self.method})")
         except Exception as e:
             logger.error(f"Sleep control error: {e}")
+
+    def _run_update(self):
+        """Run git pull via update.sh during sleep."""
+        config = self.app.config if self.app else {}
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        update_script = os.path.join(repo_dir, 'scripts', 'update.sh')
+        if not os.path.exists(update_script):
+            logger.warning("Sleep: update.sh not found, skipping update")
+            return
+        try:
+            logger.info("Sleep: running git pull (update.sh)")
+            result = subprocess.run(
+                ['bash', update_script],
+                capture_output=True, text=True, timeout=120,
+                cwd=repo_dir)
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    logger.info(f"Sleep update: {line}")
+            if result.returncode != 0:
+                logger.warning(f"Sleep update: exited {result.returncode}")
+                if result.stderr:
+                    logger.warning(f"Sleep update stderr: {result.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            logger.warning("Sleep update: timed out after 120s")
+        except Exception as e:
+            logger.error(f"Sleep update error: {e}")
 
     def test_sleep_method(self, method, duration=10):
         """Test a sleep method: turn off for duration seconds, then turn on.
