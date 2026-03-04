@@ -40,16 +40,29 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     sleep 2
     log "WiFi radio state: $(nmcli radio wifi 2>&1)"
     log "WiFi device state: $(nmcli -t -f DEVICE,STATE device status 2>&1 | grep wifi || echo 'no wifi device')"
-    echo ""
-    echo "============================================"
-    echo "  No internet connection!"
-    echo "  Starting WiFi setup hotspot..."
-    echo "  Connect to: PhotoFrame-Setup"
-    echo "  Password:   photoframe"
-    echo "  Then open any webpage to configure WiFi."
-    echo "============================================"
-    echo ""
-    # Minimal WiFi setup server (stdlib only, no pip needed)
+    # Show instructions on the Pi's display
+    systemctl stop getty@tty1 2>/dev/null || true
+    setterm --cursor off > /dev/tty1 2>/dev/null || true
+    clear > /dev/tty1
+    cat > /dev/tty1 << 'SCREEN'
+
+
+        ==========================================
+
+           Photo Frame  -  WiFi Setup
+
+           1. On your phone, connect to:
+
+              WiFi:      PhotoFrame-Setup
+              Password:  photoframe
+
+           2. A setup page will open.
+              Choose your home WiFi network.
+
+           3. Setup will continue automatically.
+
+        ==========================================
+SCREEN
     log "Starting wifi_setup_server.py..."
     python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG" || {
         log "ERROR: wifi_setup_server.py failed (exit $?)"
