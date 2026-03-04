@@ -250,8 +250,23 @@ systemctl enable photo_frame_server photo_frame_cage photo_frame_update.service
 chown -R "${FRAME_USER}:${FRAME_USER}" "${REPO_DIR}"
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}"
 
-# ---- 8. Start ----
-echo "[8/8] Starting frame..."
+# ---- 8. Touchscreen check ----
+echo "[8/8] Checking touchscreen..."
+TOUCH_ID="27c0:0859"
+if ! lsusb | grep -q "$TOUCH_ID"; then
+    echo ""
+    echo "!! No touchscreen detected !!"
+    echo "Please unplug and replug the screen's USB cable."
+    echo "Waiting..."
+    while ! lsusb | grep -q "$TOUCH_ID"; do
+        sleep 2
+    done
+    echo "Touchscreen found!"
+    sleep 1
+fi
+
+# ---- 9. Start ----
+echo "Starting frame..."
 systemctl restart photo_frame_server
 sleep 2
 systemctl restart photo_frame_cage
