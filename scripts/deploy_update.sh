@@ -8,10 +8,16 @@ REPO_DIR="$HOME/digital_photo_frame"
 
 echo "=== Photo Frame Deploy ==="
 
-# 1. Install git if missing
-if ! command -v git &>/dev/null; then
-    echo "Installing git..."
-    sudo apt-get update -qq && sudo apt-get install -y -qq git
+# 1. Install system deps if missing
+NEED_APT=false
+command -v git &>/dev/null || NEED_APT=true
+[ -f /usr/include/zlib.h ] || NEED_APT=true
+[ -f /usr/include/libheif/heif.h ] || NEED_APT=true
+if [ "$NEED_APT" = true ]; then
+    echo "Installing system packages..."
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq git python3-venv python3-dev \
+        libjpeg-dev zlib1g-dev libffi-dev libheif-dev 2>/dev/null
 fi
 
 # 2. Clone or pull
