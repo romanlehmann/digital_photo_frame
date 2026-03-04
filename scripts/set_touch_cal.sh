@@ -2,7 +2,9 @@
 # Set touchscreen calibration matrix based on orientation config.
 # Must run as root BEFORE labwc starts (ExecStartPre=+).
 
-CONFIG=/home/robert/digital_photo_frame/config_frame.yaml
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+CONFIG="${REPO_DIR}/config_frame.yaml"
 RULES_FILE=/etc/udev/rules.d/99-touchscreen-cal.rules
 
 ORIENTATION=$(python3 -c "

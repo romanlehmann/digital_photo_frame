@@ -1,12 +1,14 @@
 #!/bin/bash
 # Photo Frame — First-boot setup script
-# Runs as root on the Pi. Expects the repo already at /home/frame_user/digital_photo_frame
-# (copied there by prepare_sd.sh before first boot).
+# Runs as root on the Pi. Expects the repo in the user's home directory
+# (copied there by photo_frame_bootstrap.sh on first boot).
 set -e
 
-FRAME_USER="frame_user"
-FRAME_HOME="/home/${FRAME_USER}"
-REPO_DIR="${FRAME_HOME}/digital_photo_frame"
+# Detect user and paths from script location
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+FRAME_HOME="$(dirname "$REPO_DIR")"
+FRAME_USER="$(basename "$FRAME_HOME")"
 PHOTOS_DIR="/srv/frame/photos"
 
 echo "=== Photo Frame Setup ==="
@@ -263,6 +265,12 @@ systemctl start seatd 2>/dev/null || true
 
 # ---- Set repo ownership ----
 chown -R "${FRAME_USER}:${FRAME_USER}" "${REPO_DIR}"
+
+# ---- Initialize git repo if missing (e.g. deployed from ZIP download) ----
+if [ ! -d "${REPO_DIR}/.git" ]; then
+    echo "Initializing git repo for auto-update..."
+    su - "${FRAME_USER}" -c "cd ${REPO_DIR} && git init && git remote add origin https://github.com/rwkaspar/digital_photo_frame.git && git fetch origin main && git reset --mixed origin/main" 2>/dev/null || true
+fi
 
 # ---- Configure git safe directory (for auto-update as frame_user) ----
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}"

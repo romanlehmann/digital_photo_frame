@@ -1,93 +1,151 @@
 #!/bin/bash
-# Prepare a freshly-flashed Raspberry Pi SD card for photo frame auto-setup.
+# Prepare a freshly-flashed Raspberry Pi SD card for photo frame setup.
+# Works via the FAT32 boot partition — compatible with Windows, macOS, and Linux.
 #
 # Usage:
 #   1. Flash Raspberry Pi OS with Pi Imager:
 #      - User: frame_user (set a password)
 #      - SSH: enabled
 #      - WiFi: optional (hotspot fallback will handle it)
-#   2. Re-insert the SD card so both partitions mount
-#   3. Run: bash scripts/prepare_sd.sh [rootfs_mount]
+#   2. Re-insert the SD card
+#   3. Run: bash scripts/prepare_sd.sh [boot_mount]
 #
-# If rootfs_mount is not given, we auto-detect it.
+# On first boot, the bootstrap script copies the repo from the boot partition
+# to the user's home directory and installs the full setup service.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-FRAME_USER="frame_user"
 
-# ---- Find rootfs mount ----
+# ---- Find boot partition ----
 if [ -n "$1" ]; then
-    ROOTFS="$1"
+    BOOT="$1"
 else
-    # Auto-detect: look for common Raspberry Pi rootfs mounts
-    for candidate in /media/*/rootfs /mnt/rootfs /media/*/*; do
-        if [ -d "$candidate/etc/systemd" ]; then
-            ROOTFS="$candidate"
+    # Auto-detect: look for FAT32 boot partition with cmdline.txt
+    for candidate in \
+        /media/*/bootfs \
+        /media/*/*bootfs* \
+        /media/*/boot \
+        /run/media/*/bootfs \
+        /run/media/*/boot \
+        /Volumes/bootfs \
+        /Volumes/boot \
+        /mnt/bootfs \
+        /mnt/boot; do
+        if [ -f "$candidate/cmdline.txt" ]; then
+            BOOT="$candidate"
             break
         fi
     done
 fi
 
-if [ -z "$ROOTFS" ] || [ ! -d "$ROOTFS/etc" ]; then
-    echo "ERROR: Could not find rootfs mount."
-    echo "Usage: $0 /path/to/rootfs"
+if [ -z "$BOOT" ] || [ ! -f "$BOOT/cmdline.txt" ]; then
+    echo "ERROR: Could not find boot partition (FAT32 with cmdline.txt)."
+    echo ""
+    echo "Usage: $0 [/path/to/boot/partition]"
     echo ""
     echo "After flashing with Pi Imager, re-insert the SD card."
-    echo "The rootfs partition should mount automatically (e.g. /media/$USER/rootfs)."
+    echo "Common mount points:"
+    echo "  Linux:  /media/$USER/bootfs"
+    echo "  macOS:  /Volumes/bootfs"
     exit 1
 fi
 
-echo "Using rootfs at: $ROOTFS"
+echo "Using boot partition at: $BOOT"
 
-# ---- Copy repo to SD card ----
-DEST="${ROOTFS}/home/${FRAME_USER}/digital_photo_frame"
+# ---- Copy repo to boot partition ----
+DEST="$BOOT/photo_frame"
 echo "Copying repo to ${DEST}..."
-sudo mkdir -p "$DEST"
-sudo rsync -a --exclude='.git' --exclude='venv' --exclude='__pycache__' \
-    --exclude='*.pyc' --exclude='nas/' \
+rm -rf "$DEST"
+mkdir -p "$DEST"
+
+rsync -a \
+    --exclude='.git' \
+    --exclude='venv' \
+    --exclude='.venv' \
+    --exclude='__pycache__' \
+    --exclude='*.pyc' \
+    --exclude='nas/' \
+    --exclude='.claude/' \
+    --exclude='config_frame.yaml' \
     "$REPO_DIR/" "$DEST/"
-# .git dir needed for auto-update (git pull)
-sudo rsync -a "$REPO_DIR/.git" "$DEST/"
 
-# ---- Create first-boot systemd service ----
-echo "Installing first-boot service..."
-SERVICE_FILE="${ROOTFS}/etc/systemd/system/photo-frame-firstboot.service"
-sudo tee "$SERVICE_FILE" > /dev/null << EOF
-[Unit]
-Description=Photo Frame First Boot Setup
-After=network.target
-ConditionPathExists=!/home/${FRAME_USER}/.photo-frame-setup-done
+# Include .git for auto-update (git pull)
+rsync -a "$REPO_DIR/.git" "$DEST/"
 
-[Service]
-Type=oneshot
-ExecStart=/bin/bash /home/${FRAME_USER}/digital_photo_frame/scripts/setup_pi.sh
-ExecStartPost=/usr/bin/touch /home/${FRAME_USER}/.photo-frame-setup-done
-ExecStartPost=/bin/systemctl disable photo-frame-firstboot.service
-TimeoutStartSec=600
-StandardOutput=journal
-StandardError=journal
+echo "Repo copied ($(du -sh "$DEST" | cut -f1))"
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# ---- Copy bootstrap script to boot root ----
+cp "$SCRIPT_DIR/photo_frame_bootstrap.sh" "$BOOT/photo_frame_bootstrap.sh"
 
-# Enable the service via symlink
-sudo mkdir -p "${ROOTFS}/etc/systemd/system/multi-user.target.wants"
-sudo ln -sf /etc/systemd/system/photo-frame-firstboot.service \
-    "${ROOTFS}/etc/systemd/system/multi-user.target.wants/photo-frame-firstboot.service"
+# ---- Inject bootstrap call into first-boot mechanism ----
+BOOTSTRAP_CMD="/bin/bash /boot/firmware/photo_frame_bootstrap.sh"
+INJECTED=false
+
+# Strategy 1: cloud-init user-data (Pi Imager 2.0+ / Trixie)
+if [ -f "$BOOT/user-data" ]; then
+    if ! grep -q "photo_frame_bootstrap" "$BOOT/user-data"; then
+        echo "Injecting bootstrap into cloud-init user-data..."
+        if grep -q "^runcmd:" "$BOOT/user-data"; then
+            # Append to existing runcmd section
+            sed -i "/^runcmd:/a\\  - ${BOOTSTRAP_CMD}" "$BOOT/user-data"
+        else
+            # Add runcmd section at end
+            printf "\nruncmd:\n  - %s\n" "$BOOTSTRAP_CMD" >> "$BOOT/user-data"
+        fi
+        INJECTED=true
+    else
+        echo "Bootstrap already in user-data"
+        INJECTED=true
+    fi
+fi
+
+# Strategy 2: firstrun.sh (Legacy Bookworm / Pi Imager <2.0)
+if [ "$INJECTED" = false ] && [ -f "$BOOT/firstrun.sh" ]; then
+    if ! grep -q "photo_frame_bootstrap" "$BOOT/firstrun.sh"; then
+        echo "Injecting bootstrap into firstrun.sh..."
+        if grep -q "^exit 0" "$BOOT/firstrun.sh"; then
+            sed -i "/^exit 0/i\\${BOOTSTRAP_CMD}" "$BOOT/firstrun.sh"
+        else
+            echo "$BOOTSTRAP_CMD" >> "$BOOT/firstrun.sh"
+        fi
+        INJECTED=true
+    else
+        echo "Bootstrap already in firstrun.sh"
+        INJECTED=true
+    fi
+fi
+
+# Strategy 3: cmdline.txt systemd.run= (universal fallback)
+if [ "$INJECTED" = false ]; then
+    echo "Injecting bootstrap into cmdline.txt (systemd.run fallback)..."
+    if ! grep -q "photo_frame_bootstrap" "$BOOT/cmdline.txt"; then
+        sed -i "s|$| systemd.run=${BOOTSTRAP_CMD} systemd.run_success_action=reboot|" "$BOOT/cmdline.txt"
+    fi
+    INJECTED=true
+fi
+
+# ---- Summary ----
+INJECT_METHOD="unknown"
+if [ -f "$BOOT/user-data" ] && grep -q "photo_frame_bootstrap" "$BOOT/user-data"; then
+    INJECT_METHOD="cloud-init (user-data)"
+elif [ -f "$BOOT/firstrun.sh" ] && grep -q "photo_frame_bootstrap" "$BOOT/firstrun.sh"; then
+    INJECT_METHOD="firstrun.sh"
+else
+    INJECT_METHOD="cmdline.txt (systemd.run)"
+fi
 
 echo ""
 echo "=== SD card prepared! ==="
 echo ""
+echo "Injection method: ${INJECT_METHOD}"
+echo ""
 echo "What happens next:"
 echo "  1. Eject the SD card and insert into the Pi"
-echo "  2. Pi boots, creates user '${FRAME_USER}' (from Pi Imager settings)"
-echo "  3. First-boot service installs all packages and configures everything"
-echo "     (this takes a few minutes — the Pi will reboot when done)"
-echo "  4. After reboot, the photo frame starts automatically"
-echo "     - If WiFi was configured: slideshow starts (once photos sync)"
-echo "     - If no WiFi: 'PhotoFrame-Setup' hotspot appears for setup"
+echo "  2. First boot: Pi Imager settings apply (user, WiFi, SSH)"
+echo "     Then bootstrap copies repo and installs setup service → reboot"
+echo "  3. Second boot: Full setup runs (packages, venv, config) → reboot"
+echo "  4. Third boot: Photo frame starts, wizard on screen"
 echo ""
-echo "You can monitor progress via: ssh ${FRAME_USER}@<ip> journalctl -fu photo-frame-firstboot"
+echo "Monitor progress: ssh frame_user@<ip> journalctl -fu photo-frame-firstboot"

@@ -62,9 +62,55 @@ Raspberry Pi Zero 2 W
 
 ## Setup
 
-### Automated Setup
+### SD Card Preparation (recommended)
 
-Clone the repo to the Pi and run the setup script:
+Works on **Windows**, **macOS**, and **Linux** — no ext4 access needed.
+
+1. **Flash** Raspberry Pi OS with [Pi Imager](https://www.raspberrypi.com/software/):
+   - User: `frame_user` (set a password you'll remember)
+   - SSH: enabled
+   - WiFi: enter your network (or skip — the frame creates a setup hotspot)
+
+2. **Re-insert** the SD card so the boot partition (FAT32) mounts
+
+3. **Run the prepare script:**
+
+   **Windows** (no git required):
+   1. Download [`prepare_sd.bat`](https://raw.githubusercontent.com/rwkaspar/digital_photo_frame/main/scripts/prepare_sd.bat) (right-click → Save as)
+   2. Open a terminal where you saved the file
+   3. Run:
+      ```cmd
+      prepare_sd.bat F:
+      ```
+      Replace `F:` with the drive letter of the boot partition.
+      The script downloads everything from GitHub automatically.
+
+   **Linux / macOS:**
+   ```bash
+   git clone https://github.com/rwkaspar/digital_photo_frame.git
+   cd digital_photo_frame
+   bash scripts/prepare_sd.sh
+   ```
+   The script auto-detects the boot partition. Pass the path manually if needed:
+   ```bash
+   bash scripts/prepare_sd.sh /media/$USER/bootfs
+   ```
+
+4. **Eject** the SD card and insert into the Pi
+
+5. **Wait for 3 boots** (takes ~10 minutes total):
+   - **Boot 1:** Pi Imager settings apply (user, WiFi, SSH), then the bootstrap script copies the repo to the home directory and reboots
+   - **Boot 2:** Full setup runs (packages, Python venv, systemd services) and reboots
+   - **Boot 3:** Photo frame starts — the setup wizard appears on screen
+
+6. **Monitor progress** (optional):
+   ```bash
+   ssh frame_user@<pi-ip> journalctl -fu photo-frame-firstboot
+   ```
+
+### Manual Setup (alternative)
+
+If you prefer to set up directly on the Pi:
 
 ```bash
 git clone https://github.com/rwkaspar/digital_photo_frame.git
@@ -72,18 +118,10 @@ cd digital_photo_frame
 sudo bash scripts/setup_pi.sh
 ```
 
-This installs all dependencies, creates the venv, sets up systemd services, and reboots. On first boot, the setup wizard guides you through WiFi, Tailscale, frame settings, and album configuration.
-
-### Manual Setup
+### Updating an Existing Frame
 
 ```bash
-sudo apt update
-sudo apt install -y git python3-venv python3-dev labwc wlr-randr seatd chromium ddcutil i2c-tools network-manager
-git clone https://github.com/rwkaspar/digital_photo_frame.git
-cd digital_photo_frame
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-sudo usermod -aG video,input,render,netdev,i2c $USER
+bash ~/digital_photo_frame/scripts/deploy_update.sh
 ```
 
 ### Configuration
@@ -164,7 +202,11 @@ digital_photo_frame/
 │   └── wizard.html            # First-time setup wizard (7 steps)
 ├── systemd/                   # Systemd unit file references
 ├── scripts/
-│   ├── setup_pi.sh            # First-boot Pi setup script
+│   ├── prepare_sd.sh          # SD card prep (Linux/macOS)
+│   ├── prepare_sd.bat         # SD card prep (Windows)
+│   ├── photo_frame_bootstrap.sh # First-boot bootstrap (copies repo from boot partition)
+│   ├── setup_pi.sh            # Full Pi setup (packages, venv, services)
+│   ├── deploy_update.sh       # Update existing frame to latest version
 │   ├── update.sh              # Auto-update script (git pull + pip)
 │   └── generate_defaults.py   # Generate placeholder photos
 ├── config_frame.yaml          # Per-frame configuration template

@@ -224,6 +224,11 @@ class EnergySaveManager:
                 subprocess.run(['sudo', 'sh', '-c',
                                 'setterm --cursor off --blank force --powerdown 0 > /dev/tty1'],
                              capture_output=True, timeout=5)
+                # Start touch-to-wake listener BEFORE backlight off
+                # (DDC/CI standby may cut USB power, killing the touchscreen)
+                self._wake_event.clear()
+                threading.Thread(target=self._touch_wake_listener, daemon=True).start()
+                time.sleep(0.2)  # let listener open FDs while devices exist
                 # Turn off backlight via configured method
                 self._backlight_off()
                 logger.info(f"Sleep: stopped display ({self.method}), framebuffer black")
@@ -234,9 +239,6 @@ class EnergySaveManager:
                     syncer.run_sync()
                 else:
                     logger.warning("Sleep: syncer not initialized, skipping sync")
-                # Start touch-to-wake listener
-                self._wake_event.clear()
-                threading.Thread(target=self._touch_wake_listener, daemon=True).start()
             elif not sleep and self.sleeping:
                 self._wake_event.set()  # stop touch listener
                 # Stop any running sync before starting cage (free RAM for Chromium)
@@ -276,42 +278,78 @@ class EnergySaveManager:
             self.method = saved
 
     def _touch_wake_listener(self):
-        """Listen for touch/input events during sleep to trigger wake."""
+        """Listen for touch/input events during sleep to trigger wake.
+
+        Opens input devices early (before backlight off) so FDs exist even if
+        DDC/CI standby later cuts USB power.  Re-scans periodically in case
+        devices disappear and reappear.
+        """
         import glob
-        import struct
         import select
-        # Find input devices
-        devices = glob.glob('/dev/input/event*')
-        fds = []
-        for dev in devices:
-            try:
-                fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
-                fds.append(fd)
-            except Exception:
-                pass
-        if not fds:
-            logger.warning("Touch wake: no input devices found")
-            return
-        logger.info(f"Touch wake: listening on {len(fds)} input devices")
-        try:
-            while not self._wake_event.is_set():
-                readable, _, _ = select.select(fds, [], [], 1.0)
-                for fd in readable:
-                    try:
-                        # Read and discard input event data (24 bytes per event on 32-bit)
-                        os.read(fd, 4096)
-                    except Exception:
-                        continue
-                    if self.sleeping:
-                        logger.info("Touch wake: input detected, waking display")
-                        self.wake_display()
-                        return
-        finally:
+
+        RESCAN_INTERVAL = 5  # seconds
+
+        def open_devices():
+            fds = []
+            for dev in glob.glob('/dev/input/event*'):
+                try:
+                    fds.append(os.open(dev, os.O_RDONLY | os.O_NONBLOCK))
+                except Exception:
+                    pass
+            return fds
+
+        def close_fds(fds):
             for fd in fds:
                 try:
                     os.close(fd)
                 except Exception:
                     pass
+
+        fds = open_devices()
+        if fds:
+            logger.info(f"Touch wake: listening on {len(fds)} input devices")
+        else:
+            logger.warning("Touch wake: no input devices found")
+        last_rescan = time.time()
+
+        try:
+            while not self._wake_event.is_set():
+                # Re-scan for devices if we lost them (USB power restored)
+                if not fds and time.time() - last_rescan > RESCAN_INTERVAL:
+                    fds = open_devices()
+                    if fds:
+                        logger.info(f"Touch wake: found {len(fds)} devices on rescan")
+                    last_rescan = time.time()
+
+                if not fds:
+                    self._wake_event.wait(timeout=1.0)
+                    continue
+
+                try:
+                    readable, _, _ = select.select(fds, [], [], 1.0)
+                except (OSError, ValueError):
+                    # FDs became invalid (USB disconnected by monitor standby)
+                    close_fds(fds)
+                    fds = []
+                    logger.debug("Touch wake: input devices lost, will re-scan")
+                    continue
+
+                for fd in readable:
+                    try:
+                        data = os.read(fd, 4096)
+                        if data and self.sleeping:
+                            logger.info("Touch wake: input detected, waking display")
+                            self.wake_display()
+                            return
+                    except OSError:
+                        # Single device disconnected
+                        try:
+                            os.close(fd)
+                        except Exception:
+                            pass
+                        fds.remove(fd)
+        finally:
+            close_fds(fds)
 
     def _check(self):
         if not self.enabled:
