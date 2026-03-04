@@ -162,11 +162,24 @@ REM ---- Cleanup temp files ----
 del "%TEMP_ZIP%" 2>nul
 rmdir /s /q "%TEMP_DIR%" 2>nul
 
+REM ---- Eject SD card ----
+echo.
+echo Ejecting SD card...
+powershell -NoProfile -Command ^
+    "$drive = '%BOOT%'.Substring(0,2);" ^
+    "$vol = (Get-Volume -DriveLetter $drive.Substring(0,1) -ErrorAction SilentlyContinue);" ^
+    "if ($vol) {" ^
+    "  $eject = New-Object -ComObject Shell.Application;" ^
+    "  $eject.Namespace(17).ParseName($drive + '\').InvokeVerb('Eject');" ^
+    "  Start-Sleep -Seconds 2;" ^
+    "  Write-Host 'SD card ejected safely.';" ^
+    "} else { Write-Host 'Could not eject - please remove safely.' }"
+
 echo.
 echo === SD card prepared! ===
 echo.
 echo What happens next:
-echo   1. Eject the SD card and insert into the Pi
+echo   1. Insert the SD card into the Pi
 echo   2. First boot: Pi Imager settings apply ^(user, WiFi, SSH^)
 echo      Then bootstrap copies repo and installs setup service, then reboots
 echo   3. Second boot: Full setup runs ^(packages, venv, config^), then reboots
