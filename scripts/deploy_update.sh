@@ -1,67 +1,72 @@
 #!/bin/bash
-# Deploy update to Pi — run on the Pi itself:
+# Deploy/update Photo Frame on Pi — true one-liner:
 #   curl -fsSL https://raw.githubusercontent.com/rwkaspar/digital_photo_frame/main/scripts/deploy_update.sh | bash
 set -e
 
+REPO_URL="https://github.com/rwkaspar/digital_photo_frame.git"
 REPO_DIR="$HOME/digital_photo_frame"
+
+echo "=== Photo Frame Deploy ==="
+
+# 1. Install git if missing
+if ! command -v git &>/dev/null; then
+    echo "Installing git..."
+    sudo apt-get update -qq && sudo apt-get install -y -qq git
+fi
+
+# 2. Clone or pull
 if [ ! -d "$REPO_DIR/.git" ]; then
-    echo "Error: $REPO_DIR not found. Clone the repo first:"
-    echo "  git clone https://github.com/rwkaspar/digital_photo_frame.git"
-    exit 1
+    echo "Cloning repo..."
+    git clone "$REPO_URL" "$REPO_DIR"
+else
+    # Back up config before pull
+    if [ -f "$REPO_DIR/config_frame.yaml" ]; then
+        cp "$REPO_DIR/config_frame.yaml" "$REPO_DIR/config_frame.yaml.bak"
+        echo "Config backed up"
+        git -C "$REPO_DIR" checkout config_frame.yaml
+    fi
+    git -C "$REPO_DIR" pull --ff-only
+    # Restore config
+    if [ -f "$REPO_DIR/config_frame.yaml.bak" ]; then
+        cp "$REPO_DIR/config_frame.yaml.bak" "$REPO_DIR/config_frame.yaml"
+    fi
 fi
 cd "$REPO_DIR"
+echo "Code ready"
 
-echo "=== Updating Photo Frame ==="
-
-# 1. Back up config (has real credentials)
-HAS_CONFIG=false
-if [ -f config_frame.yaml ]; then
-    cp config_frame.yaml config_frame.yaml.bak
-    HAS_CONFIG=true
-    echo "Config backed up"
-    git checkout config_frame.yaml
-fi
-
-# 2. Pull latest
-git pull --ff-only
-echo "Code updated"
-
-# 3. Restore real config
-if [ "$HAS_CONFIG" = true ]; then
-    cp config_frame.yaml.bak config_frame.yaml
-fi
-
-# 5. Patch config: add new fields if missing
+# 3. Patch config: add new fields if missing
 CFG="config_frame.yaml"
-
-# Add setup_complete: true (already set up)
-if ! grep -q '^setup_complete:' "$CFG"; then
-    sed -i '1s/^/setup_complete: true\n/' "$CFG"
-    echo "Added setup_complete: true"
+if [ -f "$CFG" ]; then
+    if ! grep -q '^setup_complete:' "$CFG"; then
+        sed -i '1s/^/setup_complete: true\n/' "$CFG"
+        echo "Added setup_complete: true"
+    fi
+    if ! grep -q '^energy_save:' "$CFG"; then
+        echo -e "\nenergy_save:\n  method: ddcci" >> "$CFG"
+        echo "Added energy_save config"
+    fi
+    if grep -q 'local_api_base' "$CFG"; then
+        sed -i '/local_api_base/d' "$CFG"
+        echo "Removed local_api_base"
+    fi
 fi
 
-# Add energy_save section
-if ! grep -q '^energy_save:' "$CFG"; then
-    echo -e "\nenergy_save:\n  method: ddcci" >> "$CFG"
-    echo "Added energy_save config"
+# 4. Set up venv + install deps
+if [ ! -f venv/bin/pip ]; then
+    echo "Creating venv..."
+    python3 -m venv venv
 fi
+venv/bin/pip install --quiet -r requirements.txt
+echo "Deps installed"
 
-# Remove local_api_base (no longer used)
-if grep -q 'local_api_base' "$CFG"; then
-    sed -i '/local_api_base/d' "$CFG"
-    echo "Removed local_api_base"
+# 5. Restart services (if they exist)
+if systemctl list-unit-files photo_frame_server.service &>/dev/null; then
+    sudo systemctl restart photo_frame_server
+    sleep 2
+    sudo systemctl restart photo_frame_cage
+    echo "Services restarted"
+else
+    echo "Services not installed yet — run scripts/setup_pi.sh for first-time setup"
 fi
-
-# 6. Update pip deps if requirements changed
-if [ -f venv/bin/pip ]; then
-    venv/bin/pip install --quiet -r requirements.txt
-    echo "Pip deps updated"
-fi
-
-# 7. Restart services
-sudo systemctl restart photo_frame_server
-sleep 2
-sudo systemctl restart photo_frame_cage
-echo "Services restarted"
 
 echo "=== Done! ==="
