@@ -3,7 +3,12 @@
 #   curl -fsSL https://raw.githubusercontent.com/rwkaspar/digital_photo_frame/main/scripts/deploy_update.sh | bash
 set -e
 
-REPO_DIR="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || echo "$HOME/digital_photo_frame")"
+REPO_DIR="$HOME/digital_photo_frame"
+if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "Error: $REPO_DIR not found. Clone the repo first:"
+    echo "  git clone https://github.com/rwkaspar/digital_photo_frame.git"
+    exit 1
+fi
 cd "$REPO_DIR"
 
 echo "=== Updating Photo Frame ==="
