@@ -31,6 +31,7 @@ apt-get install -y -qq \
     ddcutil i2c-tools \
     network-manager \
     libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
+    fonts-noto-color-emoji \
     2>/dev/null
 
 # ---- User groups ----
@@ -257,13 +258,36 @@ systemctl disable getty@tty1 2>/dev/null || true
 # ---- Enable services ----
 echo "Enabling services..."
 systemctl daemon-reload
-systemctl enable photo_frame_server photo_frame_cage photo_frame_update.service photo_frame_update.timer
+systemctl enable seatd photo_frame_server photo_frame_cage photo_frame_update.service photo_frame_update.timer
+systemctl start seatd 2>/dev/null || true
 
 # ---- Set repo ownership ----
 chown -R "${FRAME_USER}:${FRAME_USER}" "${REPO_DIR}"
 
 # ---- Configure git safe directory (for auto-update as frame_user) ----
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}"
+
+# ---- Generate default placeholder photos ----
+echo "Generating default photos..."
+if [ -f "${REPO_DIR}/scripts/generate_defaults.py" ]; then
+    su - "${FRAME_USER}" -c "cd ${REPO_DIR} && venv/bin/python scripts/generate_defaults.py" 2>/dev/null || true
+fi
+
+# ---- Touchscreen check (wait if not detected) ----
+TOUCH_ID="27c0:0859"
+if ! lsusb | grep -q "$TOUCH_ID"; then
+    echo ""
+    echo "============================================"
+    echo "  No touchscreen detected!"
+    echo "  Please unplug and replug the screen's"
+    echo "  USB cable, then wait..."
+    echo "============================================"
+    while ! lsusb | grep -q "$TOUCH_ID"; do
+        sleep 2
+    done
+    echo "Touchscreen found!"
+    sleep 1
+fi
 
 echo ""
 echo "=== Setup complete! ==="
