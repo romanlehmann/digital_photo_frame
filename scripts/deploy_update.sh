@@ -27,6 +27,7 @@ apt-get install -y -qq \
     ddcutil i2c-tools \
     network-manager \
     libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
+    fonts-noto-color-emoji \
     2>/dev/null
 
 # ---- 2. Clone or pull ----
@@ -99,8 +100,8 @@ logging:
 YAML
     chown "${FRAME_USER}:${FRAME_USER}" "$CFG"
 else
-    # Patch existing config with new fields
-    grep -q '^setup_complete:' "$CFG" || sed -i '1s/^/setup_complete: true\n/' "$CFG"
+    # Patch existing config with new fields (keep false to preserve wizard)
+    grep -q '^setup_complete:' "$CFG" || sed -i '1s/^/setup_complete: false\n/' "$CFG"
     grep -q '^energy_save:' "$CFG" || echo -e "\nenergy_save:\n  method: ddcci" >> "$CFG"
     grep -q 'local_api_base' "$CFG" && sed -i '/local_api_base/d' "$CFG"
 fi
@@ -246,7 +247,8 @@ systemctl disable getty@tty1 2>/dev/null || true
 
 # Enable + start
 systemctl daemon-reload
-systemctl enable photo_frame_server photo_frame_cage photo_frame_update.service
+systemctl enable seatd photo_frame_server photo_frame_cage photo_frame_update.service
+systemctl start seatd 2>/dev/null || true
 chown -R "${FRAME_USER}:${FRAME_USER}" "${REPO_DIR}"
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}"
 
