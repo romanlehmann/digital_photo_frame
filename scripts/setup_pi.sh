@@ -2,7 +2,9 @@
 # Photo Frame — First-boot setup script
 # Runs as root on the Pi. Expects the repo in the user's home directory
 # (copied there by photo_frame_bootstrap.sh on first boot).
-set -e
+# Don't use set -e — we want to log errors, not silently abort
+# (clear, cat to /dev/tty1, git config etc. can fail harmlessly)
+trap 'log "ERROR on line $LINENO (exit $?)"' ERR
 
 # Detect user and paths from script location
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -17,17 +19,22 @@ log() {
     echo "$(date '+%H:%M:%S') $*" | tee -a "$SETUP_LOG"
 }
 
+# Helper: abort on critical errors (replaces set -e for important commands)
+die() {
+    log "FATAL: $*"
+    sync
+    exit 1
+}
+
 log "=== Photo Frame Setup ==="
 log "User: ${FRAME_USER}, Repo: ${REPO_DIR}"
 
 # ---- Verify ----
 if [ "$(id -u)" -ne 0 ]; then
-    log "ERROR: must run as root"
-    exit 1
+    die "must run as root"
 fi
 if [ ! -d "$REPO_DIR" ]; then
-    log "ERROR: repo not found at $REPO_DIR"
-    exit 1
+    die "repo not found at $REPO_DIR"
 fi
 
 # ---- Check internet (needed for apt-get) ----
@@ -51,11 +58,11 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     done
     log "WiFi ready: ${WIFI_READY}"
     log "Devices: $(nmcli -t -f DEVICE,TYPE,STATE device status 2>&1)"
-    # Show instructions on the Pi's display
+    # Show instructions on the Pi's display (all display commands are best-effort)
     systemctl stop getty@tty1 2>/dev/null || true
     setterm --cursor off > /dev/tty1 2>/dev/null || true
-    clear > /dev/tty1
-    cat > /dev/tty1 << 'SCREEN'
+    clear > /dev/tty1 2>/dev/null || true
+    cat > /dev/tty1 2>/dev/null << 'SCREEN' || true
 
 
         ==========================================
@@ -75,20 +82,21 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
         ==========================================
 SCREEN
     log "Starting wifi_setup_server.py..."
-    python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG" || {
-        log "ERROR: wifi_setup_server.py failed (exit $?)"
+    python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG"
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        log "ERROR: wifi_setup_server.py failed"
         log "Waiting for network (plug in Ethernet or power-cycle with WiFi configured)..."
         while ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; do
             sleep 10
         done
-    }
+    fi
     log "Internet connected! Continuing setup..."
     sleep 2
 fi
 
 # ---- System packages ----
 log "Installing packages..."
-apt-get update -qq
+apt-get update -qq || die "apt-get update failed - no internet?"
 apt-get install -y -qq \
     git python3-venv python3-dev \
     labwc wlr-randr seatd \
@@ -97,7 +105,7 @@ apt-get install -y -qq \
     network-manager \
     libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
     fonts-noto-color-emoji \
-    2>/dev/null
+    2>/dev/null || die "apt-get install failed"
 
 # ---- User groups ----
 echo "Setting up user groups..."
@@ -116,7 +124,7 @@ chown -R "${FRAME_USER}:${FRAME_USER}" "${PHOTOS_DIR}"
 # ---- Python venv ----
 log "Setting up Python venv..."
 cd "$REPO_DIR"
-su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt"
+su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt" || die "Python venv/pip setup failed"
 
 # ---- Config file ----
 if [ ! -f "${REPO_DIR}/config_frame.yaml" ]; then
@@ -336,7 +344,7 @@ if [ ! -d "${REPO_DIR}/.git" ]; then
 fi
 
 # ---- Configure git safe directory (for auto-update as frame_user) ----
-su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}"
+su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}" 2>/dev/null || true
 
 # ---- Generate default placeholder photos ----
 echo "Generating default photos..."
