@@ -96,7 +96,7 @@ Type=oneshot
 ExecStart=/bin/bash ${DEST}/scripts/setup_pi.sh
 ExecStartPost=/usr/bin/touch ${FRAME_HOME}/.photo-frame-setup-done
 ExecStartPost=/bin/systemctl disable photo-frame-firstboot.service
-TimeoutStartSec=600
+TimeoutStartSec=infinity
 StandardOutput=journal
 StandardError=journal
 
