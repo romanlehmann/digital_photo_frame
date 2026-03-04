@@ -23,6 +23,24 @@ if [ ! -d "$REPO_DIR" ]; then
     exit 1
 fi
 
+# ---- Check internet (needed for apt-get) ----
+echo "Checking internet connectivity..."
+if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
+    echo ""
+    echo "============================================"
+    echo "  No internet connection!"
+    echo "  Starting WiFi setup hotspot..."
+    echo "  Connect to: PhotoFrame-Setup"
+    echo "  Password:   photoframe"
+    echo "  Then open any webpage to configure WiFi."
+    echo "============================================"
+    echo ""
+    # Minimal WiFi setup server (stdlib only, no pip needed)
+    python3 "${REPO_DIR}/scripts/wifi_setup_server.py"
+    echo "Internet connected! Continuing setup..."
+    sleep 2
+fi
+
 # ---- System packages ----
 echo "Installing packages..."
 apt-get update -qq
