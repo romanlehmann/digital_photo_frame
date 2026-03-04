@@ -4,17 +4,20 @@
 # installs a first-boot service for full setup, and reboots.
 #
 # Invoked automatically via cloud-init runcmd, firstrun.sh, or systemd.run.
-set -e
 
 BOOT_REPO="/boot/firmware/photo_frame"
-LOG_TAG="photo-frame-bootstrap"
+BLOG="/boot/firmware/bootstrap_log.txt"
 
-log() { echo "[$LOG_TAG] $*"; }
+log() {
+    echo "$(date '+%H:%M:%S') $*" | tee -a "$BLOG"
+}
+
+# Don't use set -e — we want to log errors, not silently abort
+trap 'log "ERROR on line $LINENO (exit $?)"' ERR
 
 log "=== Photo Frame Bootstrap ==="
 
 # ---- Detect target user ----
-# Prefer frame_user; fall back to first human user (UID 1000+)
 detect_user() {
     if id -u frame_user &>/dev/null; then
         echo "frame_user"
@@ -37,6 +40,7 @@ fi
 
 if [ -z "$FRAME_USER" ]; then
     log "ERROR: No suitable user found after 60s. Aborting."
+    sync
     exit 1
 fi
 
@@ -54,12 +58,14 @@ done
 
 if [ ! -d "$FRAME_HOME" ]; then
     log "ERROR: Home directory ${FRAME_HOME} not found after 60s"
+    sync
     exit 1
 fi
 
 # ---- Verify boot repo exists ----
 if [ ! -d "$BOOT_REPO" ]; then
     log "ERROR: Repo not found at ${BOOT_REPO}"
+    sync
     exit 1
 fi
 
@@ -68,6 +74,7 @@ log "Copying repo to ${DEST}..."
 mkdir -p "$DEST"
 cp -a "${BOOT_REPO}/." "$DEST/"
 chown -R "${FRAME_USER}:${FRAME_USER}" "$DEST"
+log "Copy done ($(du -sh "$DEST" 2>/dev/null | cut -f1))"
 
 # ---- Fix Windows CRLF line endings ----
 log "Fixing line endings..."
@@ -99,6 +106,15 @@ EOF
 
 systemctl daemon-reload
 systemctl enable photo-frame-firstboot.service
+log "Service installed and enabled"
+
+# Verify service file exists on disk
+sync
+if [ -f /etc/systemd/system/photo-frame-firstboot.service ]; then
+    log "Service file verified on disk"
+else
+    log "WARNING: Service file not found after write!"
+fi
 
 # ---- Clean up boot partition ----
 log "Cleaning boot partition..."
@@ -106,5 +122,8 @@ rm -rf "$BOOT_REPO"
 rm -f /boot/firmware/photo_frame_bootstrap.sh
 
 log "=== Bootstrap complete — rebooting ==="
-sleep 2
+# Flush ALL filesystem buffers before reboot
+sync
+sync
+sleep 3
 reboot
