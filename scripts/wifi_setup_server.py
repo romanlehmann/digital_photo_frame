@@ -9,6 +9,8 @@ Must run as root.
 import http.server
 import json
 import os
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -35,6 +37,18 @@ def has_internet():
     return rc == 0
 
 
+def get_gateway_ip():
+    """Get the Pi's IP on the hotspot interface (usually 10.42.0.1)."""
+    out, _ = run_cmd(["ip", "-4", "-o", "addr", "show"])
+    for line in out.split("\n"):
+        # Look for 10.42.x.x (nmcli hotspot default range)
+        parts = line.split()
+        for p in parts:
+            if p.startswith("10.42."):
+                return p.split("/")[0]
+    return "10.42.0.1"  # fallback
+
+
 def start_hotspot():
     run_cmd(["nmcli", "device", "wifi", "hotspot",
              "ssid", HOTSPOT_SSID, "password", HOTSPOT_PASSWORD])
@@ -44,7 +58,7 @@ def start_hotspot():
 
 
 def stop_hotspot():
-    run_cmd(["iptables", "-t", "nat", "-F", "PREROUTING"])
+    run_cmd(["iptables", "-t", "nat", "-F", "PREROUTING"])  # clears both HTTP + DNS redirects
     out, _ = run_cmd(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"])
     for line in out.split("\n"):
         if "hotspot" in line.lower() or HOTSPOT_SSID in line:
@@ -151,6 +165,55 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
 
+def captive_dns_server(gateway_ip, port=53):
+    """Minimal DNS server that resolves ALL queries to the gateway IP.
+
+    This makes captive portal detection work: the phone queries e.g.
+    connectivitycheck.gstatic.com, gets the Pi's IP back, tries HTTP,
+    and our HTTP server serves the setup page.
+    """
+    ip_bytes = socket.inet_aton(gateway_ip)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("", port))
+    except OSError as e:
+        print(f"[wifi-setup] DNS server failed to bind port {port}: {e}")
+        return
+    print(f"[wifi-setup] DNS server on port {port}, resolving all to {gateway_ip}")
+    while True:
+        try:
+            data, addr = sock.recvfrom(512)
+            if len(data) < 12:
+                continue
+            # Build minimal DNS response:
+            # - Copy transaction ID from query
+            # - Set response flags (standard response, no error)
+            # - 1 question, 1 answer, 0 authority, 0 additional
+            tx_id = data[:2]
+            flags = b'\x81\x80'  # standard response, recursion available
+            counts = b'\x00\x01\x00\x01\x00\x00\x00\x00'
+            # Question section: copy from query (starts at byte 12)
+            # Find end of question: skip QNAME + QTYPE(2) + QCLASS(2)
+            pos = 12
+            while pos < len(data) and data[pos] != 0:
+                pos += data[pos] + 1
+            pos += 5  # null byte + QTYPE(2) + QCLASS(2)
+            question = data[12:pos]
+            # Answer: pointer to name in question (0xC00C), type A, class IN,
+            # TTL 60s, data length 4, IP address
+            answer = b'\xc0\x0c'  # pointer to name at offset 12
+            answer += b'\x00\x01'  # type A
+            answer += b'\x00\x01'  # class IN
+            answer += struct.pack('>I', 60)  # TTL 60s
+            answer += b'\x00\x04'  # data length
+            answer += ip_bytes
+            response = tx_id + flags + counts + question + answer
+            sock.sendto(response, addr)
+        except Exception:
+            pass
+
+
 def connectivity_watcher():
     """Exit if internet appears (e.g. Ethernet plugged in)."""
     while True:
@@ -164,6 +227,15 @@ def connectivity_watcher():
 def main():
     print(f"[wifi-setup] Starting hotspot '{HOTSPOT_SSID}' (password: {HOTSPOT_PASSWORD})")
     start_hotspot()
+    time.sleep(2)  # let hotspot interface come up
+
+    # Start captive portal DNS on port 5353, redirect real DNS traffic to it
+    # (don't kill dnsmasq — it handles DHCP for the hotspot)
+    gateway_ip = get_gateway_ip()
+    print(f"[wifi-setup] Gateway IP: {gateway_ip}")
+    threading.Thread(target=captive_dns_server, args=(gateway_ip, 5353), daemon=True).start()
+    run_cmd(["iptables", "-t", "nat", "-A", "PREROUTING",
+             "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-port", "5353"])
 
     threading.Thread(target=connectivity_watcher, daemon=True).start()
 
