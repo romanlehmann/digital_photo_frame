@@ -14,18 +14,22 @@ cd "$REPO_DIR"
 echo "=== Updating Photo Frame ==="
 
 # 1. Back up config (has real credentials)
-cp config_frame.yaml config_frame.yaml.bak
-echo "Config backed up"
+HAS_CONFIG=false
+if [ -f config_frame.yaml ]; then
+    cp config_frame.yaml config_frame.yaml.bak
+    HAS_CONFIG=true
+    echo "Config backed up"
+    git checkout config_frame.yaml
+fi
 
-# 2. Reset tracked config so pull doesn't conflict
-git checkout config_frame.yaml
-
-# 3. Pull latest
+# 2. Pull latest
 git pull --ff-only
 echo "Code updated"
 
-# 4. Restore real config
-cp config_frame.yaml.bak config_frame.yaml
+# 3. Restore real config
+if [ "$HAS_CONFIG" = true ]; then
+    cp config_frame.yaml.bak config_frame.yaml
+fi
 
 # 5. Patch config: add new fields if missing
 CFG="config_frame.yaml"
