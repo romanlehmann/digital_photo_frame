@@ -136,16 +136,35 @@ else
     INJECT_METHOD="cmdline.txt (systemd.run)"
 fi
 
+# ---- Eject SD card ----
+echo ""
+echo "Ejecting SD card..."
+sync
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    diskutil eject "$BOOT" 2>/dev/null && echo "SD card ejected safely." || echo "Could not eject - please remove safely."
+else
+    # Linux: unmount all partitions of the same device
+    DEVICE=$(df "$BOOT" 2>/dev/null | tail -1 | awk '{print $1}' | sed 's/[0-9]*$//')
+    if [ -n "$DEVICE" ] && [ -b "$DEVICE" ]; then
+        udisksctl power-off -b "$DEVICE" 2>/dev/null && echo "SD card ejected safely." \
+            || (umount "$BOOT" 2>/dev/null && echo "SD card unmounted. Safe to remove.") \
+            || echo "Could not eject - please remove safely."
+    else
+        umount "$BOOT" 2>/dev/null && echo "SD card unmounted. Safe to remove." || echo "Could not eject - please remove safely."
+    fi
+fi
+
 echo ""
 echo "=== SD card prepared! ==="
 echo ""
 echo "Injection method: ${INJECT_METHOD}"
 echo ""
 echo "What happens next:"
-echo "  1. Eject the SD card and insert into the Pi"
+echo "  1. Insert the SD card into the Pi"
 echo "  2. First boot: Pi Imager settings apply (user, WiFi, SSH)"
-echo "     Then bootstrap copies repo and installs setup service → reboot"
-echo "  3. Second boot: Full setup runs (packages, venv, config) → reboot"
+echo "     Then bootstrap copies repo and installs setup service - reboot"
+echo "  3. Second boot: Full setup runs (packages, venv, config) - reboot"
 echo "  4. Third boot: Photo frame starts, wizard on screen"
 echo ""
 echo "Monitor progress: ssh frame_user@<ip> journalctl -fu photo-frame-firstboot"
