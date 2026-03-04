@@ -58,29 +58,10 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     done
     log "WiFi ready: ${WIFI_READY}"
     log "Devices: $(nmcli -t -f DEVICE,TYPE,STATE device status 2>&1)"
-    # Show instructions on the Pi's display (all display commands are best-effort)
+    # Prepare tty1 for display (wifi_setup_server.py will show full instructions with IP)
     systemctl stop getty@tty1 2>/dev/null || true
     setterm --cursor off > /dev/tty1 2>/dev/null || true
-    clear > /dev/tty1 2>/dev/null || true
-    cat > /dev/tty1 2>/dev/null << 'SCREEN' || true
-
-
-        ==========================================
-
-           Photo Frame  -  WiFi Setup
-
-           1. On your phone, connect to:
-
-              WiFi:      PhotoFrame-Setup
-              Password:  photoframe
-
-           2. A setup page will open.
-              Choose your home WiFi network.
-
-           3. Setup will continue automatically.
-
-        ==========================================
-SCREEN
+    echo "Starting WiFi setup..." > /dev/tty1 2>/dev/null || true
     log "Starting wifi_setup_server.py..."
     python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG"
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then

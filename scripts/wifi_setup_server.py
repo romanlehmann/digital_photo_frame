@@ -224,15 +224,50 @@ def connectivity_watcher():
             os._exit(0)
 
 
+def update_tty_display(gateway_ip):
+    """Show WiFi setup instructions with IP on the Pi's display."""
+    text = f"""
+
+        ==========================================
+
+           Photo Frame  -  WiFi Setup
+
+           1. On your phone, connect to:
+
+              WiFi:      {HOTSPOT_SSID}
+              Password:  {HOTSPOT_PASSWORD}
+
+           2. Open in your browser:
+
+              http://{gateway_ip}
+
+           3. Choose your home WiFi network.
+
+           Setup will continue automatically.
+
+        ==========================================
+"""
+    try:
+        with open("/dev/tty1", "w") as tty:
+            tty.write("\033[2J\033[H")  # clear screen + cursor home
+            tty.write(text)
+    except Exception as e:
+        print(f"[wifi-setup] Could not write to tty1: {e}")
+
+
 def main():
     print(f"[wifi-setup] Starting hotspot '{HOTSPOT_SSID}' (password: {HOTSPOT_PASSWORD})")
     start_hotspot()
     time.sleep(2)  # let hotspot interface come up
 
-    # Start captive portal DNS on port 5353, redirect real DNS traffic to it
-    # (don't kill dnsmasq — it handles DHCP for the hotspot)
     gateway_ip = get_gateway_ip()
     print(f"[wifi-setup] Gateway IP: {gateway_ip}")
+
+    # Show IP on Pi's display
+    update_tty_display(gateway_ip)
+
+    # Start captive portal DNS on port 5353, redirect real DNS traffic to it
+    # (don't kill dnsmasq — it handles DHCP for the hotspot)
     threading.Thread(target=captive_dns_server, args=(gateway_ip, 5353), daemon=True).start()
     run_cmd(["iptables", "-t", "nat", "-A", "PREROUTING",
              "-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-port", "5353"])
