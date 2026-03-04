@@ -37,9 +37,20 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     # Unblock WiFi (may be soft-blocked on fresh install without WiFi config)
     rfkill unblock wifi 2>/dev/null || true
     nmcli radio wifi on 2>/dev/null || true
-    sleep 2
-    log "WiFi radio state: $(nmcli radio wifi 2>&1)"
-    log "WiFi device state: $(nmcli -t -f DEVICE,STATE device status 2>&1 | grep wifi || echo 'no wifi device')"
+
+    # Wait for WiFi device to appear (brcmfmac can take a while on Pi Zero 2W)
+    log "Waiting for WiFi device..."
+    WIFI_READY=false
+    for i in $(seq 1 30); do
+        if nmcli -t -f TYPE device status 2>/dev/null | grep -q wifi; then
+            WIFI_READY=true
+            break
+        fi
+        log "  WiFi not ready yet ($i/30)... $(ip link show wlan0 2>&1 | head -1)"
+        sleep 2
+    done
+    log "WiFi ready: ${WIFI_READY}"
+    log "Devices: $(nmcli -t -f DEVICE,TYPE,STATE device status 2>&1)"
     # Show instructions on the Pi's display
     systemctl stop getty@tty1 2>/dev/null || true
     setterm --cursor off > /dev/tty1 2>/dev/null || true
