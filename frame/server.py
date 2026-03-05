@@ -54,10 +54,10 @@ def main():
 
     slideshow_config = config.get('slideshow', {})
 
-    # Detect wizard mode: no album sources and setup not yet completed
-    if not app.has_album_sources() and not config.get('setup_complete'):
+    # Detect wizard mode: setup not yet completed
+    if not config.get('setup_complete'):
         app.wizard_mode = True
-        logger.info("No album sources configured — entering wizard mode")
+        logger.info("Setup not complete — entering wizard mode")
 
     # Start background services
     app.sysinfo_cache = SysinfoCache(photos_dir)

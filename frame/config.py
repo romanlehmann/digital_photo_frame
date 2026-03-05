@@ -36,10 +36,12 @@ class AppState:
             yaml.dump(self.config, f, default_flow_style=False)
 
     def has_album_sources(self) -> bool:
-        """Check if any photo album sources are configured."""
-        has_synology = any(self.config.get('synology', {}).get('share_urls', []))
-        has_google = any(self.config.get('google_photos', {}).get('share_urls', []))
-        has_immich = any(self.config.get('immich', {}).get('share_urls', []))
+        """Check if any real photo album sources are configured."""
+        def has_real_urls(urls):
+            return any(u for u in urls if u and 'REPLACE_ME' not in u and 'example.com' not in u)
+        has_synology = has_real_urls(self.config.get('synology', {}).get('share_urls', []))
+        has_google = has_real_urls(self.config.get('google_photos', {}).get('share_urls', []))
+        has_immich = has_real_urls(self.config.get('immich', {}).get('share_urls', []))
         return has_synology or has_google or has_immich
 
     def init_syncer(self):
