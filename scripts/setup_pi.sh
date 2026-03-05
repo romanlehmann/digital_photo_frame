@@ -329,10 +329,11 @@ fi
 # ---- Configure git safe directory (for auto-update as frame_user) ----
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}" 2>/dev/null || true
 
-# ---- Generate default placeholder photos ----
-echo "Generating default photos..."
-if [ -f "${REPO_DIR}/scripts/generate_defaults.py" ]; then
-    su - "${FRAME_USER}" -c "cd ${REPO_DIR} && venv/bin/python scripts/generate_defaults.py" 2>/dev/null || true
+# ---- Copy default placeholder photos (pre-generated in repo) ----
+echo "Copying default photos..."
+if [ -d "${REPO_DIR}/viewer/defaults/horizontal" ]; then
+    cp "${REPO_DIR}/viewer/defaults/horizontal/"*.jpg "${PHOTOS_DIR}/horizontal/" 2>/dev/null || true
+    cp "${REPO_DIR}/viewer/defaults/vertical/"*.jpg "${PHOTOS_DIR}/vertical/" 2>/dev/null || true
 fi
 
 # ---- Touchscreen check (wait if not detected) ----
