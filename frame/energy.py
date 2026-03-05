@@ -179,6 +179,13 @@ class EnergySaveManager:
         if self.sleeping:
             self._set_sleep(False)
 
+    def _wayland_env(self):
+        """Get environment with Wayland display vars for wlr-randr/wlopm."""
+        env = os.environ.copy()
+        env['XDG_RUNTIME_DIR'] = '/tmp/frame-runtime'
+        env['WAYLAND_DISPLAY'] = 'wayland-0'
+        return env
+
     def _backlight_off(self):
         """Turn off backlight using configured method."""
         method = self.method
@@ -198,14 +205,14 @@ class EnergySaveManager:
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '0'],
                          capture_output=True, timeout=10)
         elif method == 'dpms':
-            subprocess.run(['wlopm', '--off', '*'],
-                         capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'wlopm', '--off', '*'],
+                         capture_output=True, timeout=5, env=self._wayland_env())
         elif method == 'brightness':
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '0'],
                          capture_output=True, timeout=10)
         elif method == 'hdmi':
             subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--off'],
-                         capture_output=True, timeout=5)
+                         capture_output=True, timeout=5, env=self._wayland_env())
         # black_only: no additional command (framebuffer already zeroed)
 
     def _backlight_on(self):
@@ -216,14 +223,14 @@ class EnergySaveManager:
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', brightness],
                          capture_output=True, timeout=10)
         elif method == 'dpms':
-            subprocess.run(['wlopm', '--on', '*'],
-                         capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'wlopm', '--on', '*'],
+                         capture_output=True, timeout=5, env=self._wayland_env())
         elif method == 'brightness':
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '100'],
                          capture_output=True, timeout=10)
         elif method == 'hdmi':
             subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--on'],
-                         capture_output=True, timeout=5)
+                         capture_output=True, timeout=5, env=self._wayland_env())
         # black_only: no additional command
 
     def _set_sleep(self, sleep):

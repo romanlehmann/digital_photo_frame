@@ -153,36 +153,7 @@ fi
 
 # ---- labwc config (uses XDG_CONFIG_HOME pointed at repo dir) ----
 echo "Configuring labwc..."
-# autostart needs frame_user paths
-cat > "${REPO_DIR}/labwc/autostart" << 'LABWC_AUTOSTART'
-# Apply display rotation from config
-ORIENTATION=$(python3 -c "
-import yaml
-try:
-    with open('$REPO_DIR_PLACEHOLDER/config_frame.yaml') as f:
-        print(yaml.safe_load(f).get('frame',{}).get('orientation','horizontal'))
-except: print('horizontal')
-" 2>/dev/null)
-if [ "$ORIENTATION" = "vertical" ]; then
-    wlr-randr --output HDMI-A-1 --transform 90
-fi
-
-/usr/lib/chromium/chromium \
-    --kiosk \
-    --noerrdialogs \
-    --disable-infobars \
-    --no-first-run \
-    --check-for-update-interval=31536000 \
-    --disable-session-crashed-bubble \
-    --disable-features=TranslateUI \
-    --disable-component-update \
-    --disable-pinch \
-    --enable-features=VirtualKeyboard \
-    --ozone-platform=wayland \
-    http://localhost:8080/ &
-LABWC_AUTOSTART
-# Fix the placeholder (heredoc can't expand within single quotes)
-sed -i "s|\$REPO_DIR_PLACEHOLDER|${REPO_DIR}|g" "${REPO_DIR}/labwc/autostart"
+# autostart uses XDG_CONFIG_HOME (set by cage service) for dynamic path detection
 chmod +x "${REPO_DIR}/labwc/autostart"
 
 # ---- Systemd services ----

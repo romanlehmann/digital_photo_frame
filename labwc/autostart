@@ -1,8 +1,12 @@
+# Detect repo dir from XDG_CONFIG_HOME (set by systemd service)
+REPO_DIR="${XDG_CONFIG_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
+CONFIG="${REPO_DIR}/config_frame.yaml"
+
 # Apply display rotation from config
 ORIENTATION=$(python3 -c "
 import yaml
 try:
-    with open('/home/robert/digital_photo_frame/config_frame.yaml') as f:
+    with open('${CONFIG}') as f:
         print(yaml.safe_load(f).get('frame',{}).get('orientation','horizontal'))
 except: print('horizontal')
 " 2>/dev/null)

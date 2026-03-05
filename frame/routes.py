@@ -766,6 +766,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             if orientation not in ('horizontal', 'vertical'):
                 raise ValueError('Invalid orientation')
 
+            old_orientation = self.app.config.get('frame', {}).get('orientation', 'horizontal')
             self.app.config.setdefault('frame', {})
             if name:
                 self.app.config['frame']['name'] = name
@@ -807,6 +808,15 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
             self.app.save_config()
             self._json_response({'ok': True})
+
+            # Restart cage if orientation changed (triggers wlr-randr rotation)
+            if orientation != old_orientation:
+                def restart_cage():
+                    time.sleep(1)
+                    subprocess.run(['sudo', 'systemctl', 'restart', 'photo_frame_cage'],
+                                 capture_output=True, timeout=15)
+                    logger.info(f"Orientation changed to {orientation}, restarted cage")
+                threading.Thread(target=restart_cage, daemon=True).start()
         except Exception as e:
             logger.error(f"Error saving frame settings: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 400)

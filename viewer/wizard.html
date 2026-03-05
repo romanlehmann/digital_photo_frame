@@ -316,16 +316,31 @@
         </div>
     </div>
 
-    <!-- Step 2: WiFi -->
+    <!-- Step 2: Orientation -->
     <div class="step" id="step-2">
-        <div class="step-title" data-i18n="wifi_title">WiFi</div>
-        <div class="step-subtitle" data-i18n="wifi_subtitle">Connect to your home network</div>
-        <div id="wifi-networks"></div>
-        <button class="btn btn-secondary" onclick="wifiScan()" data-i18n="rescan">Rescan</button>
-        <div id="wifi-status"></div>
-        <div class="spacer"></div>
+        <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
+            <div class="step-title" data-i18n="orient_title">Orientation</div>
+            <div class="step-subtitle" data-i18n="orient_subtitle">How is your frame mounted?</div>
+            <div class="orientation-cards" style="max-width:340px; margin-top:16px;">
+                <div class="orientation-card" id="orient-wiz-h" onclick="selectWizOrientation('horizontal')">
+                    <svg width="80" height="56" viewBox="0 0 80 56" style="margin-bottom:10px;">
+                        <rect x="2" y="2" width="76" height="48" rx="4" fill="none" stroke="#888" stroke-width="2"/>
+                        <rect x="8" y="8" width="64" height="36" rx="2" fill="#2a6" opacity="0.3"/>
+                        <line x1="36" y1="52" x2="44" y2="52" stroke="#888" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <div class="orient-label" data-i18n="horizontal">Horizontal</div>
+                </div>
+                <div class="orientation-card" id="orient-wiz-v" onclick="selectWizOrientation('vertical')">
+                    <svg width="56" height="80" viewBox="0 0 56 80" style="margin-bottom:10px;">
+                        <rect x="2" y="2" width="52" height="72" rx="4" fill="none" stroke="#888" stroke-width="2"/>
+                        <rect x="8" y="8" width="40" height="60" rx="2" fill="#2a6" opacity="0.3"/>
+                        <line x1="24" y1="76" x2="32" y2="76" stroke="#888" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <div class="orient-label" data-i18n="vertical">Vertical</div>
+                </div>
+            </div>
+        </div>
         <div style="margin-top:16px;">
-            <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
             <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
@@ -350,20 +365,9 @@
     <!-- Step 4: Frame Settings -->
     <div class="step" id="step-4">
         <div class="step-title" data-i18n="settings_title">Frame Settings</div>
-        <div class="step-subtitle" data-i18n="settings_subtitle">Name your frame and choose orientation</div>
+        <div class="step-subtitle" data-i18n="settings_subtitle_short">Name your frame and configure display</div>
         <label data-i18n="frame_name_label">Frame name</label>
         <input type="text" id="frame-name" placeholder="living-room">
-        <label style="margin-top:8px;" data-i18n="orientation_label">Orientation</label>
-        <div class="orientation-cards">
-            <div class="orientation-card selected" id="orient-h" onclick="selectOrientation('horizontal')">
-                <div class="orientation-preview" style="width:80px; height:50px;"></div>
-                <div class="orient-label" data-i18n="horizontal">Horizontal</div>
-            </div>
-            <div class="orientation-card" id="orient-v" onclick="selectOrientation('vertical')">
-                <div class="orientation-preview" style="width:50px; height:80px;"></div>
-                <div class="orient-label" data-i18n="vertical">Vertical</div>
-            </div>
-        </div>
         <label style="margin-top:8px;" data-i18n="interval_label">Slideshow interval</label>
         <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
             <button class="btn btn-secondary" style="width:48px; padding:10px; flex:0;" onclick="adjustWizInterval(-5)">-</button>
@@ -431,7 +435,6 @@
         </div>
         <div id="album-list"></div>
         <div id="add-album-area"></div>
-        <button class="btn btn-secondary" onclick="showAddAlbum()" id="btn-add-album" data-i18n="add_album">+ Add Album</button>
         <div class="spacer"></div>
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="nextStep()" id="albums-next-btn" data-i18n="next" disabled>Next</button>
@@ -485,8 +488,11 @@
             ts_scan_qr: 'Scan this QR code to authenticate:',
             ts_connected: 'Tailscale connected',
             ts_ip: 'Tailscale IP',
+            orient_title: 'Orientation',
+            orient_subtitle: 'How is your frame mounted?',
             settings_title: 'Frame Settings',
             settings_subtitle: 'Name your frame and choose orientation',
+            settings_subtitle_short: 'Name your frame and configure display',
             frame_name_label: 'Frame name',
             orientation_label: 'Orientation',
             horizontal: 'Horizontal',
@@ -570,8 +576,11 @@
             ts_scan_qr: 'QR-Code scannen zum Authentifizieren:',
             ts_connected: 'Tailscale verbunden',
             ts_ip: 'Tailscale-IP',
+            orient_title: 'Ausrichtung',
+            orient_subtitle: 'Wie ist dein Rahmen montiert?',
             settings_title: 'Rahmen-Einstellungen',
             settings_subtitle: 'Name und Ausrichtung w\u00e4hlen',
+            settings_subtitle_short: 'Name und Anzeige konfigurieren',
             frame_name_label: 'Rahmenname',
             orientation_label: 'Ausrichtung',
             horizontal: 'Horizontal',
@@ -657,7 +666,6 @@
         }
         updateProgress();
         // Step-specific init
-        if (n === 2) wifiInit();
         if (n === 3) tailscaleInit();
         if (n === 4) frameSettingsInit();
         if (n === 5) sleepTestInit();
@@ -921,6 +929,23 @@
         document.getElementById('orient-v').classList.toggle('selected', o === 'vertical');
     }
 
+    function selectWizOrientation(o) {
+        selectedOrientation = o;
+        document.getElementById('orient-wiz-h').classList.toggle('selected', o === 'horizontal');
+        document.getElementById('orient-wiz-v').classList.toggle('selected', o === 'vertical');
+        // Save next step so we resume after reload
+        sessionStorage.setItem('wizard-step', '3');
+        // Save orientation and restart cage (triggers wlr-randr rotation)
+        fetch('/api/frame/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orientation: o })
+        }).then(function() {
+            // Reload page after cage restart to apply rotation
+            setTimeout(function() { window.location.reload(); }, 8000);
+        });
+    }
+
     function saveFrameSettings() {
         var name = document.getElementById('frame-name').value.trim();
         var payload = {
@@ -1087,11 +1112,14 @@
     var testedAlbumName = '';
 
     function albumsRender() {
-        // Generate QR code pointing to remote config page
-        var remoteUrl = 'http://' + location.hostname + ':' + location.port + '/remote';
-        var qrUrlEl = document.getElementById('album-qr-url');
-        if (qrUrlEl) qrUrlEl.textContent = remoteUrl;
-        fetch('/api/qrcode?text=' + encodeURIComponent(remoteUrl))
+        // Generate QR code pointing to remote config page (use real IP, not localhost)
+        fetch('/sysinfo').then(function(r) { return r.json(); }).then(function(info) {
+            var ip = (info.ips && info.ips[0]) || location.hostname;
+            var remoteUrl = 'http://' + ip + ':8080/remote';
+            var qrUrlEl = document.getElementById('album-qr-url');
+            if (qrUrlEl) qrUrlEl.textContent = remoteUrl;
+            return fetch('/api/qrcode?text=' + encodeURIComponent(remoteUrl));
+        })
         .then(function(r) { return r.json(); })
         .then(function(qr) { drawQR('album-qr-canvas', qr.modules); })
         .catch(function() {});
@@ -1303,7 +1331,15 @@
     }
 
     // --- Init ---
-    showStep(1);
+    var resumeStep = sessionStorage.getItem('wizard-step');
+    if (resumeStep) {
+        sessionStorage.removeItem('wizard-step');
+        var savedLang = localStorage.getItem('frame-language');
+        if (savedLang) { lang = savedLang; applyI18n(); }
+        showStep(parseInt(resumeStep));
+    } else {
+        showStep(1);
+    }
     </script>
 </body>
 </html>
