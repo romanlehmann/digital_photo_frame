@@ -97,10 +97,22 @@ def connect_wifi(ssid, password):
         cmd += ["password", password]
     out, rc = run_cmd(cmd, timeout=30)
     if rc == 0:
+        # Delete hotspot profile so NM doesn't auto-start it on next boot
+        delete_hotspot_profile()
         return True, "Connected"
     # Restart hotspot on failure
     start_hotspot()
     return False, out
+
+
+def delete_hotspot_profile():
+    """Remove the hotspot connection profile from NetworkManager."""
+    out, _ = run_cmd(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
+    for line in out.split("\n"):
+        if "hotspot" in line.lower() or HOTSPOT_SSID in line:
+            name = line.split(":")[0]
+            run_cmd(["nmcli", "connection", "delete", name])
+            log(f"[wifi-setup] Deleted hotspot profile: {name}")
 
 
 class SetupHandler(http.server.BaseHTTPRequestHandler):
