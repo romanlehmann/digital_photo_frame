@@ -78,20 +78,17 @@ fi
 # ---- System packages ----
 log "Installing packages..."
 apt-get update -qq 2>&1 | tee -a "$SETUP_LOG" || die "apt-get update failed - no internet?"
-# Install in groups so we can see which group fails
-for pkg_group in \
-    "git python3-venv python3-dev" \
-    "labwc wlr-randr seatd" \
-    "chromium" \
-    "ddcutil i2c-tools" \
-    "network-manager" \
-    "libjpeg-dev zlib1g-dev libffi-dev libheif-dev" \
-    "fonts-noto-color-emoji"; do
-    log "Installing: $pkg_group"
-    apt-get install -y -qq $pkg_group 2>&1 | tail -5 | tee -a "$SETUP_LOG" || {
-        log "WARNING: failed to install: $pkg_group (continuing)"
-    }
-done
+log "Installing all packages (single apt-get call)..."
+apt-get install -y \
+    git python3-venv python3-dev \
+    labwc wlr-randr seatd \
+    chromium \
+    ddcutil i2c-tools \
+    network-manager \
+    libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
+    fonts-noto-color-emoji \
+    2>&1 | tee -a "$SETUP_LOG" || die "apt-get install failed"
+log "Packages installed."
 
 # ---- User groups ----
 echo "Setting up user groups..."
