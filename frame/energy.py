@@ -109,7 +109,7 @@ class EnergySaveManager:
 
     SCHEDULE_FILE = '/tmp/frame-schedule.json'
 
-    SLEEP_METHODS = ('ddcci', 'dpms', 'brightness', 'black_only')
+    SLEEP_METHODS = ('hdmi', 'ddcci', 'dpms', 'brightness', 'black_only')
 
     def __init__(self, app_state=None):
         self.app = app_state
@@ -203,6 +203,9 @@ class EnergySaveManager:
         elif method == 'brightness':
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '0'],
                          capture_output=True, timeout=10)
+        elif method == 'hdmi':
+            subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--off'],
+                         capture_output=True, timeout=5)
         # black_only: no additional command (framebuffer already zeroed)
 
     def _backlight_on(self):
@@ -218,6 +221,9 @@ class EnergySaveManager:
         elif method == 'brightness':
             subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '100'],
                          capture_output=True, timeout=10)
+        elif method == 'hdmi':
+            subprocess.run(['wlr-randr', '--output', 'HDMI-A-1', '--on'],
+                         capture_output=True, timeout=5)
         # black_only: no additional command
 
     def _set_sleep(self, sleep):

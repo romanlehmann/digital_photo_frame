@@ -410,8 +410,9 @@
         <div id="sleep-test-status" class="ts-status">
             <div class="label" data-i18n="sleep_info">We'll test different methods to turn off your screen's backlight. Each test lasts 10 seconds.</div>
         </div>
-        <div id="sleep-test-result"></div>
-        <button class="btn btn-primary" onclick="startSleepTest()" id="btn-sleep-test" data-i18n="test_sleep">Test Sleep Mode</button>
+        <div id="sleep-test-results"></div>
+        <button class="btn btn-primary" onclick="startSleepTests()" id="btn-sleep-test" data-i18n="test_sleep">Test Sleep Mode</button>
+        <div id="sleep-pick-best" style="display:none;"></div>
         <div class="spacer"></div>
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="nextStep()" id="sleep-next-btn" data-i18n="next">Next</button>
@@ -494,15 +495,20 @@
             blur_darken: 'Blur darken',
             sleep_title: 'Sleep Mode',
             sleep_subtitle: 'Test how the frame turns off the screen backlight',
-            sleep_info: "We'll test different methods to turn off your screen's backlight. Each test lasts 10 seconds.",
-            test_sleep: 'Test Sleep Mode',
-            sleep_testing: 'Testing... screen will go dark for 10 seconds',
-            sleep_did_work: 'Did the screen backlight turn off completely?',
-            sleep_yes: 'Yes, it worked!',
-            sleep_no: 'No, still glowing',
+            sleep_info: "We'll test different methods to turn off your screen. Each test lasts 10 seconds.",
+            test_sleep: 'Start Tests',
+            sleep_testing: 'Testing',
+            sleep_did_work: 'Did the screen turn off completely?',
+            sleep_yes: 'Yes',
+            sleep_no: 'No',
             sleep_success: 'Sleep method saved!',
-            sleep_fallback: 'Using screen-black fallback (backlight stays on)',
-            sleep_trying_next: 'Trying next method...',
+            sleep_fallback: 'No method worked perfectly. Which one had the best result?',
+            sleep_pick_best: 'Select the best method:',
+            sleep_method_hdmi: 'Disable HDMI signal',
+            sleep_method_ddcci: 'Brightness to 0 (DDC/CI)',
+            sleep_method_dpms: 'DPMS standby',
+            sleep_method_brightness: 'Brightness to 0 (sysfs)',
+            sleep_method_black_only: 'Black screen only (no backlight control)',
             summary_interval: 'Interval',
             albums_title: 'Photo Albums',
             albums_subtitle: 'Add your photo sources',
@@ -573,15 +579,20 @@
             blur_darken: 'Unsch\u00e4rfe-Abdunklung',
             sleep_title: 'Schlafmodus',
             sleep_subtitle: 'Testen, wie der Rahmen die Hintergrundbeleuchtung ausschaltet',
-            sleep_info: 'Wir testen verschiedene Methoden, um die Hintergrundbeleuchtung auszuschalten. Jeder Test dauert 10 Sekunden.',
+            sleep_info: 'Wir testen verschiedene Methoden, um den Bildschirm auszuschalten. Jeder Test dauert 10 Sekunden.',
             test_sleep: 'Schlafmodus testen',
-            sleep_testing: 'Teste... Bildschirm wird f\u00fcr 10 Sekunden dunkel',
-            sleep_did_work: 'Hat sich die Hintergrundbeleuchtung komplett ausgeschaltet?',
-            sleep_yes: 'Ja, hat funktioniert!',
-            sleep_no: 'Nein, leuchtet noch',
+            sleep_testing: 'Teste',
+            sleep_did_work: 'Hat sich der Bildschirm komplett ausgeschaltet?',
+            sleep_yes: 'Ja',
+            sleep_no: 'Nein',
             sleep_success: 'Schlafmethode gespeichert!',
-            sleep_fallback: 'Verwende Schwarzbild-Fallback (Hintergrundbeleuchtung bleibt an)',
-            sleep_trying_next: 'Teste n\u00e4chste Methode...',
+            sleep_fallback: 'Keine Methode hat perfekt funktioniert. Welche hatte das beste Ergebnis?',
+            sleep_pick_best: 'Beste Methode w\u00e4hlen:',
+            sleep_method_hdmi: 'HDMI-Signal deaktivieren',
+            sleep_method_ddcci: 'Helligkeit auf 0 (DDC/CI)',
+            sleep_method_dpms: 'DPMS-Standby',
+            sleep_method_brightness: 'Helligkeit auf 0 (sysfs)',
+            sleep_method_black_only: 'Nur Schwarzbild (keine Hintergrundbeleuchtung)',
             summary_interval: 'Intervall',
             albums_title: 'Fotoalben',
             albums_subtitle: 'Fotoquellen hinzuf\u00fcgen',
@@ -927,31 +938,62 @@
     }
 
     // --- Step 5: Sleep Mode Test ---
-    var sleepMethods = ['ddcci', 'dpms', 'brightness'];
+    var sleepMethods = ['hdmi', 'ddcci', 'dpms', 'brightness'];
+    var sleepMethodNames = { hdmi: 'sleep_method_hdmi', ddcci: 'sleep_method_ddcci', dpms: 'sleep_method_dpms', brightness: 'sleep_method_brightness', black_only: 'sleep_method_black_only' };
     var sleepMethodIdx = 0;
+    var sleepResults = {};  // method -> true/false
     var selectedSleepMethod = 'black_only';
 
     function sleepTestInit() {
         sleepMethodIdx = 0;
+        sleepResults = {};
         selectedSleepMethod = 'black_only';
-        document.getElementById('sleep-test-result').innerHTML = '';
-        document.getElementById('btn-sleep-test').disabled = false;
-        document.getElementById('btn-sleep-test').textContent = t('test_sleep');
+        document.getElementById('sleep-test-results').innerHTML = '';
+        document.getElementById('sleep-pick-best').style.display = 'none';
+        var btn = document.getElementById('btn-sleep-test');
+        btn.style.display = '';
+        btn.disabled = false;
+        btn.textContent = t('test_sleep');
     }
 
-    function startSleepTest() {
+    function renderSleepResults() {
+        var html = '';
+        for (var i = 0; i < sleepMethods.length; i++) {
+            var m = sleepMethods[i];
+            var num = i + 1;
+            var name = t(sleepMethodNames[m]);
+            var status = '';
+            if (m in sleepResults) {
+                status = sleepResults[m]
+                    ? '<span style="color:#2a6;">&#10003;</span>'
+                    : '<span style="color:#c44;">&#10007;</span>';
+            } else if (i === sleepMethodIdx) {
+                status = '<span class="spinner" style="width:16px;height:16px;"></span>';
+            } else {
+                status = '<span style="color:#666;">-</span>';
+            }
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;' +
+                'background:#1a1a1a;border-radius:8px;margin-bottom:6px;">' +
+                '<span style="color:#ccc;font-size:14px;">' + num + '. ' + name + '</span>' +
+                '<span style="font-size:18px;">' + status + '</span></div>';
+        }
+        document.getElementById('sleep-test-results').innerHTML = html;
+    }
+
+    function startSleepTests() {
+        sleepTestInit();
+        runNextSleepTest();
+    }
+
+    function runNextSleepTest() {
         if (sleepMethodIdx >= sleepMethods.length) {
-            // All methods tried, use fallback
-            document.getElementById('sleep-test-result').innerHTML =
-                '<div class="status-msg info">' + t('sleep_fallback') + '</div>';
-            saveSleepMethod('black_only');
+            sleepTestsDone();
             return;
         }
         var method = sleepMethods[sleepMethodIdx];
         var btn = document.getElementById('btn-sleep-test');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span>' + t('sleep_testing');
-        document.getElementById('sleep-test-result').innerHTML = '';
+        btn.style.display = 'none';
+        renderSleepResults();
 
         fetch('/api/sleep/test', {
             method: 'POST',
@@ -960,50 +1002,68 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            btn.disabled = false;
             // Ask if it worked
-            document.getElementById('sleep-test-result').innerHTML =
-                '<div class="status-msg info" style="text-align:left;">' + t('sleep_did_work') + '</div>' +
-                '<div class="btn-row">' +
-                '<button class="btn btn-primary" onclick="sleepWorked(\'' + method + '\')">' + t('sleep_yes') + '</button>' +
-                '<button class="btn btn-secondary" onclick="sleepFailed()">' + t('sleep_no') + '</button>' +
+            renderSleepResults();
+            var num = sleepMethodIdx + 1;
+            var name = t(sleepMethodNames[method]);
+            document.getElementById('sleep-pick-best').style.display = '';
+            document.getElementById('sleep-pick-best').innerHTML =
+                '<div style="margin:12px 0 8px;color:#ccc;font-size:14px;">' + num + '. ' + name + ' - ' + t('sleep_did_work') + '</div>' +
+                '<div style="display:flex;gap:8px;">' +
+                '<button class="btn btn-primary" style="flex:1;" onclick="sleepAnswer(true)">' + t('sleep_yes') + '</button>' +
+                '<button class="btn btn-secondary" style="flex:1;" onclick="sleepAnswer(false)">' + t('sleep_no') + '</button>' +
                 '</div>';
-            btn.style.display = 'none';
         })
         .catch(function() {
-            btn.disabled = false;
-            btn.textContent = t('test_sleep');
+            sleepResults[method] = false;
             sleepMethodIdx++;
-            if (sleepMethodIdx < sleepMethods.length) {
-                document.getElementById('sleep-test-result').innerHTML =
-                    '<div class="status-msg error">' + t('sleep_trying_next') + '</div>';
-            }
+            runNextSleepTest();
         });
     }
 
-    function sleepWorked(method) {
-        selectedSleepMethod = method;
-        saveSleepMethod(method);
-        document.getElementById('sleep-test-result').innerHTML =
-            '<div class="status-msg success">' + t('sleep_success') + ' (' + method + ')</div>';
-        document.getElementById('btn-sleep-test').style.display = 'none';
+    function sleepAnswer(worked) {
+        var method = sleepMethods[sleepMethodIdx];
+        sleepResults[method] = worked;
+        if (worked) {
+            // Found a working method - save it immediately
+            selectedSleepMethod = method;
+            saveSleepMethod(method);
+            renderSleepResults();
+            document.getElementById('sleep-pick-best').style.display = '';
+            document.getElementById('sleep-pick-best').innerHTML =
+                '<div class="status-msg success">' + t('sleep_success') + ' (' + t(sleepMethodNames[method]) + ')</div>';
+            return;
+        }
+        sleepMethodIdx++;
+        document.getElementById('sleep-pick-best').style.display = 'none';
+        runNextSleepTest();
     }
 
-    function sleepFailed() {
-        sleepMethodIdx++;
-        var btn = document.getElementById('btn-sleep-test');
-        btn.style.display = '';
-        if (sleepMethodIdx < sleepMethods.length) {
-            document.getElementById('sleep-test-result').innerHTML =
-                '<div class="status-msg info">' + t('sleep_trying_next') + '</div>';
-            btn.textContent = t('test_sleep');
-            btn.disabled = false;
-        } else {
-            document.getElementById('sleep-test-result').innerHTML =
-                '<div class="status-msg info">' + t('sleep_fallback') + '</div>';
-            saveSleepMethod('black_only');
-            btn.style.display = 'none';
+    function sleepTestsDone() {
+        renderSleepResults();
+        // Check if any worked
+        var anyWorked = false;
+        for (var m in sleepResults) { if (sleepResults[m]) { anyWorked = true; break; } }
+        if (anyWorked) return; // already saved
+
+        // None worked perfectly - let user pick the best one
+        var html = '<div style="margin:12px 0 8px;color:#f90;font-size:14px;">' + t('sleep_fallback') + '</div>';
+        for (var i = 0; i < sleepMethods.length; i++) {
+            var m = sleepMethods[i];
+            html += '<button class="btn btn-secondary" style="margin-bottom:6px;text-align:left;" onclick="pickSleepMethod(\'' + m + '\')">' +
+                (i + 1) + '. ' + t(sleepMethodNames[m]) + '</button>';
         }
+        html += '<button class="btn btn-secondary" style="margin-bottom:6px;text-align:left;" onclick="pickSleepMethod(\'black_only\')">' +
+            (sleepMethods.length + 1) + '. ' + t(sleepMethodNames['black_only']) + '</button>';
+        document.getElementById('sleep-pick-best').style.display = '';
+        document.getElementById('sleep-pick-best').innerHTML = html;
+    }
+
+    function pickSleepMethod(method) {
+        selectedSleepMethod = method;
+        saveSleepMethod(method);
+        document.getElementById('sleep-pick-best').innerHTML =
+            '<div class="status-msg success">' + t('sleep_success') + ' (' + t(sleepMethodNames[method]) + ')</div>';
     }
 
     function saveSleepMethod(method) {

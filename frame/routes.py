@@ -800,7 +800,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             # Sleep method
             if 'sleep_method' in data:
                 method = data['sleep_method']
-                if method in ('ddcci', 'dpms', 'brightness', 'black_only'):
+                if method in ('hdmi', 'ddcci', 'dpms', 'brightness', 'black_only'):
                     self.app.config.setdefault('energy_save', {})['method'] = method
                     if self.app.energy_save:
                         self.app.energy_save.method = method
@@ -819,7 +819,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             data = json.loads(body)
             method = data.get('method', 'ddcci')
             duration = min(int(data.get('duration', 10)), 15)
-            if method not in ('ddcci', 'dpms', 'brightness', 'black_only'):
+            if method not in ('hdmi', 'ddcci', 'dpms', 'brightness', 'black_only'):
                 raise ValueError(f'Invalid method: {method}')
             if self.app and self.app.energy_save:
                 self.app.energy_save.test_sleep_method(method, duration)
