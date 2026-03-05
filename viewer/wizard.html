@@ -424,7 +424,11 @@
     <!-- Step 6: Photo Albums -->
     <div class="step" id="step-6">
         <div class="step-title" data-i18n="albums_title">Photo Albums</div>
-        <div class="step-subtitle" data-i18n="albums_subtitle">Add your photo sources</div>
+        <div class="step-subtitle" data-i18n="albums_subtitle_qr">Scan the QR code to add albums from your phone</div>
+        <div id="album-qr-setup" style="text-align:center; margin-bottom:16px;">
+            <div class="qr-container"><canvas id="album-qr-canvas"></canvas></div>
+            <div id="album-qr-url" style="color:#888; font-size:12px; word-break:break-all; margin-top:8px;"></div>
+        </div>
         <div id="album-list"></div>
         <div id="add-album-area"></div>
         <button class="btn btn-secondary" onclick="showAddAlbum()" id="btn-add-album" data-i18n="add_album">+ Add Album</button>
@@ -512,6 +516,7 @@
             summary_interval: 'Interval',
             albums_title: 'Photo Albums',
             albums_subtitle: 'Add your photo sources',
+            albums_subtitle_qr: 'Scan the QR code to add albums from your phone',
             add_album: '+ Add Album',
             album_url: 'Share URL',
             album_passphrase: 'Passphrase (if required)',
@@ -596,6 +601,7 @@
             summary_interval: 'Intervall',
             albums_title: 'Fotoalben',
             albums_subtitle: 'Fotoquellen hinzuf\u00fcgen',
+            albums_subtitle_qr: 'QR-Code scannen, um Alben vom Handy hinzuzuf\u00fcgen',
             add_album: '+ Album hinzuf\u00fcgen',
             album_url: 'Freigabe-URL',
             album_passphrase: 'Passwort (falls erforderlich)',
@@ -1081,6 +1087,15 @@
     var testedAlbumName = '';
 
     function albumsRender() {
+        // Generate QR code pointing to remote config page
+        var remoteUrl = 'http://' + location.hostname + ':' + location.port + '/remote';
+        var qrUrlEl = document.getElementById('album-qr-url');
+        if (qrUrlEl) qrUrlEl.textContent = remoteUrl;
+        fetch('/api/qrcode?text=' + encodeURIComponent(remoteUrl))
+        .then(function(r) { return r.json(); })
+        .then(function(qr) { drawQR('album-qr-canvas', qr.modules); })
+        .catch(function() {});
+
         var listEl = document.getElementById('album-list');
         if (albums.length === 0) {
             listEl.innerHTML = '<div style="text-align:center; color:#666; padding:20px; font-size:15px;">' + t('no_albums') + '</div>';
