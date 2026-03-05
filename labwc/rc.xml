@@ -2,7 +2,8 @@
 <labwc_config>
   <cursor>
     <hide>yes</hide>
-    <hideTimeout>1000</hideTimeout>
+    <hideTimeout>0</hideTimeout>
+    <size>1</size>
   </cursor>
   <keyboard>
     <default />
