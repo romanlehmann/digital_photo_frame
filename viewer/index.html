@@ -255,6 +255,12 @@
             width: 100%;
         }
 
+        #settings-main .settings-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
         .settings-btn {
             padding: 14px 20px;
             font-size: 18px;
@@ -643,6 +649,7 @@
                 <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">&#x1F504; Sync Now</button>
                 <button class="settings-btn" onclick="showSettingsPage('albums')">Photo Albums</button>
                 <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
+                <button class="settings-btn" onclick="showSettingsPage('wifi')">WiFi</button>
                 <button class="settings-btn" onclick="showSettingsPage('about')">About</button>
                 <button class="settings-btn power-btn" onclick="showPowerPopup()"><span class="power-icon"></span></button>
             </div>
@@ -766,6 +773,43 @@
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
             </div>
         </div>
+        <!-- WiFi Page -->
+        <div id="settings-wifi" class="settings-page" style="display:none">
+            <h1 id="wifi-title">WiFi</h1>
+            <div class="settings-section">
+                <div class="info-grid">
+                    <span class="info-label" id="wifi-status-label">Status:</span>
+                    <span class="info-value" id="wifi-status-value">--</span>
+                    <span class="info-label" id="wifi-network-label">Network:</span>
+                    <span class="info-value" id="wifi-network-value">--</span>
+                </div>
+            </div>
+            <div id="wifi-normal-view">
+                <div class="settings-section">
+                    <div style="font-size:14px;color:#888;line-height:1.6;" id="wifi-hint">
+                        To change WiFi, start reconfiguration below. Then connect your phone to the setup hotspot and choose a new network.
+                    </div>
+                </div>
+                <div class="settings-buttons">
+                    <button class="settings-btn" id="wifi-reconfig-btn" onclick="startWifiReconfigure()">Reconfigure WiFi</button>
+                    <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
+                </div>
+            </div>
+            <div id="wifi-hotspot-view" style="display:none">
+                <div class="settings-section">
+                    <div style="font-size:16px;color:#fff;line-height:1.8;text-align:center;">
+                        <div style="margin-bottom:12px;" id="wifi-hotspot-instructions">Connect your phone to:</div>
+                        <div style="font-size:20px;font-weight:bold;color:#6af;">PhotoFrame-Setup</div>
+                        <div style="font-size:14px;color:#888;margin-top:4px;">Password: <span style="color:#fff;">photoframe</span></div>
+                        <div style="margin-top:16px;font-size:14px;color:#888;" id="wifi-hotspot-open">Then open in your browser:</div>
+                        <div style="font-size:18px;color:#6af;margin-top:4px;" id="wifi-hotspot-url">http://10.42.0.1/setup</div>
+                    </div>
+                </div>
+                <div class="settings-buttons">
+                    <button class="settings-btn close-btn" onclick="cancelWifiReconfigure()">← Back</button>
+                </div>
+            </div>
+        </div>
         <!-- About Page -->
         <div id="settings-about" class="settings-page" style="display:none">
             <h1 id="about-title">About</h1>
@@ -861,6 +905,15 @@
                 off: 'Off',
                 about: 'About',
                 about_license: 'Licensed under BUSL-1.1',
+                wifi_page: 'WiFi',
+                wifi_connected: 'Connected',
+                wifi_hotspot: 'Hotspot active',
+                wifi_network: 'Network:',
+                wifi_status: 'Status:',
+                wifi_hint: 'To change WiFi, start reconfiguration below. Then connect your phone to the setup hotspot and choose a new network.',
+                wifi_reconfigure: 'Reconfigure WiFi',
+                wifi_connect_phone: 'Connect your phone to:',
+                wifi_then_open: 'Then open in your browser:',
                 weekdays: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
             },
             de: {
@@ -913,6 +966,15 @@
                 off: 'Aus',
                 about: '\u00dcber',
                 about_license: 'Lizenziert unter BUSL-1.1',
+                wifi_page: 'WLAN',
+                wifi_connected: 'Verbunden',
+                wifi_hotspot: 'Hotspot aktiv',
+                wifi_network: 'Netzwerk:',
+                wifi_status: 'Status:',
+                wifi_hint: 'Um das WLAN zu \u00e4ndern, starte die Neukonfiguration. Verbinde dann dein Handy mit dem Setup-Hotspot und w\u00e4hle ein neues Netzwerk.',
+                wifi_reconfigure: 'WLAN neu einrichten',
+                wifi_connect_phone: 'Verbinde dein Handy mit:',
+                wifi_then_open: 'Dann \u00f6ffne im Browser:',
                 weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
             }
         };
@@ -935,8 +997,9 @@
             mainBtns[0].innerHTML = '&#x1F504; ' + t('sync_now');
             mainBtns[1].textContent = t('photo_albums');
             mainBtns[2].textContent = t('display');
-            mainBtns[3].textContent = t('about');
-            // mainBtns[4] is power icon — no translation
+            mainBtns[3].textContent = t('wifi_page');
+            mainBtns[4].textContent = t('about');
+            // mainBtns[5] is power icon — no translation
             // Display page
             document.getElementById('display-title').textContent = t('display');
             document.getElementById('brightness-title').textContent = t('brightness');
@@ -968,6 +1031,18 @@
             var albumBtns = document.querySelectorAll('#settings-albums .settings-buttons .settings-btn');
             albumBtns[0].textContent = t('edit');
             albumBtns[1].textContent = t('back');
+            // WiFi page
+            document.getElementById('wifi-title').textContent = t('wifi_page');
+            document.getElementById('wifi-status-label').textContent = t('wifi_status');
+            document.getElementById('wifi-network-label').textContent = t('wifi_network');
+            document.getElementById('wifi-hint').textContent = t('wifi_hint');
+            document.getElementById('wifi-reconfig-btn').textContent = t('wifi_reconfigure');
+            document.getElementById('wifi-hotspot-instructions').textContent = t('wifi_connect_phone');
+            document.getElementById('wifi-hotspot-open').textContent = t('wifi_then_open');
+            var wifiBtns = document.querySelectorAll('#wifi-normal-view .settings-buttons .settings-btn');
+            wifiBtns[1].textContent = t('back');
+            var wifiHotspotBtns = document.querySelectorAll('#wifi-hotspot-view .settings-buttons .settings-btn');
+            wifiHotspotBtns[0].textContent = t('back');
             // About page
             document.getElementById('about-title').textContent = t('about');
             document.getElementById('about-license-text').textContent = t('about_license');
@@ -1207,6 +1282,72 @@
             document.getElementById('settings-' + page).style.display = 'flex';
             if (page === 'albums') loadAlbums();
             if (page === 'about') loadAbout();
+            if (page === 'wifi') loadWifiStatus();
+        }
+
+        async function loadWifiStatus() {
+            try {
+                const resp = await fetch('/api/wifi/status');
+                const data = await resp.json();
+                if (data.mode === 'hotspot') {
+                    document.getElementById('wifi-status-value').textContent = t('wifi_hotspot');
+                    document.getElementById('wifi-network-value').textContent = 'PhotoFrame-Setup';
+                    document.getElementById('wifi-normal-view').style.display = 'none';
+                    document.getElementById('wifi-hotspot-view').style.display = 'block';
+                } else {
+                    document.getElementById('wifi-status-value').textContent = t('wifi_connected');
+                    document.getElementById('wifi-network-value').textContent = data.ssid || '--';
+                    document.getElementById('wifi-normal-view').style.display = 'block';
+                    document.getElementById('wifi-hotspot-view').style.display = 'none';
+                }
+            } catch (e) {
+                document.getElementById('wifi-status-value').textContent = '--';
+            }
+        }
+
+        let wifiPollId = null;
+
+        async function startWifiReconfigure() {
+            var btn = document.getElementById('wifi-reconfig-btn');
+            btn.disabled = true;
+            btn.textContent = '...';
+            try {
+                const resp = await fetch('/api/wifi/reconfigure', { method: 'POST' });
+                const data = await resp.json();
+                if (data.ok) {
+                    document.getElementById('wifi-status-value').textContent = t('wifi_hotspot');
+                    document.getElementById('wifi-network-value').textContent = 'PhotoFrame-Setup';
+                    document.getElementById('wifi-normal-view').style.display = 'none';
+                    document.getElementById('wifi-hotspot-view').style.display = 'block';
+                    // Poll for WiFi reconnection
+                    startWifiPoll();
+                }
+            } catch (e) {}
+            btn.disabled = false;
+            btn.textContent = t('wifi_reconfigure');
+        }
+
+        function startWifiPoll() {
+            stopWifiPoll();
+            wifiPollId = setInterval(async function() {
+                try {
+                    const resp = await fetch('/api/wifi/status');
+                    const data = await resp.json();
+                    if (data.mode === 'normal') {
+                        stopWifiPoll();
+                        loadWifiStatus();
+                    }
+                } catch (e) {}
+            }, 5000);
+        }
+
+        function stopWifiPoll() {
+            if (wifiPollId) { clearInterval(wifiPollId); wifiPollId = null; }
+        }
+
+        function cancelWifiReconfigure() {
+            stopWifiPoll();
+            showSettingsPage('main');
         }
 
         async function loadAbout() {

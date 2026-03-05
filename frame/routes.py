@@ -123,6 +123,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_frame_settings()
         elif self.path == '/api/sleep/test':
             self.handle_sleep_test()
+        elif self.path == '/api/wifi/reconfigure':
+            self.handle_wifi_reconfigure()
         elif self.path == '/api/wizard/complete':
             self.handle_wizard_complete()
         else:
@@ -734,6 +736,23 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f"WiFi connect error: {e}")
             self._json_response({'ok': False, 'message': str(e)}, 400)
+
+    def handle_wifi_reconfigure(self):
+        """Start hotspot so user can reconfigure WiFi from their phone."""
+        if not (self.app and self.app.wifi_manager):
+            self._json_response({'ok': False, 'error': 'WiFi manager not available'}, 500)
+            return
+        try:
+            self.app.wifi_manager.start_hotspot()
+            self._json_response({
+                'ok': True,
+                'ssid': 'PhotoFrame-Setup',
+                'password': 'photoframe',
+            })
+            logger.info("WiFi reconfigure: hotspot started")
+        except Exception as e:
+            logger.error(f"WiFi reconfigure error: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 500)
 
     # --- Wizard / Tailscale endpoints ---
 
