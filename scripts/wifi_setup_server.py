@@ -105,7 +105,7 @@ def connect_wifi(ssid, password):
 
 class SetupHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        print(f"[wifi-setup] {args[0]}")
+        log(f"[wifi-setup] {args[0]}")
 
     def do_GET(self):
         # Captive portal detection URLs + main page all serve setup.html
@@ -133,10 +133,10 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
     def _bg_connect(self, ssid, password):
         ok, msg = connect_wifi(ssid, password)
         if ok:
-            print(f"[wifi-setup] Connected to {ssid}! Exiting.")
+            log(f"[wifi-setup] Connected to {ssid}! Exiting.")
             os._exit(0)
         else:
-            print(f"[wifi-setup] Failed: {msg}")
+            log(f"[wifi-setup] Failed: {msg}")
 
     def _serve_file(self, filename, content_type):
         path = os.path.join(VIEWER_DIR, filename)
@@ -178,9 +178,9 @@ def captive_dns_server(gateway_ip, port=53):
     try:
         sock.bind(("", port))
     except OSError as e:
-        print(f"[wifi-setup] DNS server failed to bind port {port}: {e}")
+        log(f"[wifi-setup] DNS server failed to bind port {port}: {e}")
         return
-    print(f"[wifi-setup] DNS server on port {port}, resolving all to {gateway_ip}")
+    log(f"[wifi-setup] DNS server on port {port}, resolving all to {gateway_ip}")
     while True:
         try:
             data, addr = sock.recvfrom(512)
@@ -219,7 +219,7 @@ def connectivity_watcher():
     while True:
         time.sleep(10)
         if has_internet():
-            print("[wifi-setup] Internet detected, exiting.")
+            log("[wifi-setup] Internet detected, exiting.")
             stop_hotspot()
             os._exit(0)
 
@@ -252,16 +252,21 @@ def update_tty_display(gateway_ip):
             tty.write("\033[2J\033[H")  # clear screen + cursor home
             tty.write(text)
     except Exception as e:
-        print(f"[wifi-setup] Could not write to tty1: {e}")
+        log(f"[wifi-setup] Could not write to tty1: {e}")
+
+
+def log(msg):
+    """Print and flush immediately (stdout may be piped through tee)."""
+    print(msg, flush=True)
 
 
 def main():
-    print(f"[wifi-setup] Starting hotspot '{HOTSPOT_SSID}' (password: {HOTSPOT_PASSWORD})")
+    log(f"[wifi-setup] Starting hotspot '{HOTSPOT_SSID}' (password: {HOTSPOT_PASSWORD})")
     start_hotspot()
     time.sleep(2)  # let hotspot interface come up
 
     gateway_ip = get_gateway_ip()
-    print(f"[wifi-setup] Gateway IP: {gateway_ip}")
+    log(f"[wifi-setup] Gateway IP: {gateway_ip}")
 
     # Show IP on Pi's display
     update_tty_display(gateway_ip)
@@ -275,7 +280,7 @@ def main():
     threading.Thread(target=connectivity_watcher, daemon=True).start()
 
     server = http.server.HTTPServer(("", PORT), SetupHandler)
-    print(f"[wifi-setup] Serving setup page on port {PORT}")
+    log(f"[wifi-setup] Serving setup page on port {PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
