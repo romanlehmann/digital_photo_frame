@@ -69,6 +69,7 @@
         .btn-primary { background: #2a6; }
         .btn-secondary { background: #333; margin-top: 8px; }
         .btn-skip { background: transparent; color: #888; margin-top: 8px; font-weight: 400; }
+        .btn-back { background: transparent; color: #888; margin-top: 8px; font-weight: 400; float: left; }
         .btn:disabled { opacity: 0.4; }
 
         .btn-row { display: flex; gap: 10px; margin-top: 12px; }
@@ -325,6 +326,7 @@
         <div class="spacer"></div>
         <div style="margin-top:16px;">
             <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -341,6 +343,7 @@
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="nextStep()" id="ts-next-btn" data-i18n="next">Next</button>
             <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -396,6 +399,7 @@
         <div class="spacer"></div>
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="saveFrameSettings()" data-i18n="next">Next</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -412,6 +416,7 @@
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="nextStep()" id="sleep-next-btn" data-i18n="next">Next</button>
             <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -426,6 +431,7 @@
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="nextStep()" id="albums-next-btn" data-i18n="next" disabled>Next</button>
             <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -437,6 +443,7 @@
         <div class="spacer"></div>
         <div style="margin-top:16px;">
             <button class="btn btn-primary" onclick="completeSetup()" data-i18n="start">Start Photo Frame</button>
+            <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
 
@@ -643,6 +650,10 @@
 
     function nextStep() {
         if (currentStep < totalSteps) showStep(currentStep + 1);
+    }
+
+    function prevStep() {
+        if (currentStep > 1) showStep(currentStep - 1);
     }
 
     function updateProgress() {
