@@ -514,6 +514,7 @@
             sleep_success: 'Sleep method saved!',
             sleep_fallback: 'No method worked perfectly. Which one had the best result?',
             sleep_pick_best: 'Select the best method:',
+            sleep_test_note: 'During the test, the display stays active. In real sleep mode the display service is also stopped, which may improve the result.',
             sleep_method_hdmi: 'Disable HDMI signal',
             sleep_method_ddcci: 'Brightness to 0 (DDC/CI)',
             sleep_method_dpms: 'DPMS standby',
@@ -602,6 +603,7 @@
             sleep_success: 'Schlafmethode gespeichert!',
             sleep_fallback: 'Keine Methode hat perfekt funktioniert. Welche hatte das beste Ergebnis?',
             sleep_pick_best: 'Beste Methode w\u00e4hlen:',
+            sleep_test_note: 'W\u00e4hrend des Tests bleibt das Display aktiv. Im echten Schlafmodus wird auch der Display-Dienst gestoppt, was das Ergebnis verbessern kann.',
             sleep_method_hdmi: 'HDMI-Signal deaktivieren',
             sleep_method_ddcci: 'Helligkeit auf 0 (DDC/CI)',
             sleep_method_dpms: 'DPMS-Standby',
@@ -1077,15 +1079,14 @@
         for (var m in sleepResults) { if (sleepResults[m]) { anyWorked = true; break; } }
         if (anyWorked) return; // already saved
 
-        // None worked perfectly - let user pick the best one
+        // None worked perfectly - let user pick the best one (only tested methods)
         var html = '<div style="margin:12px 0 8px;color:#f90;font-size:14px;">' + t('sleep_fallback') + '</div>';
+        html += '<div style="color:#888;font-size:13px;margin-bottom:10px;">' + t('sleep_test_note') + '</div>';
         for (var i = 0; i < sleepMethods.length; i++) {
             var m = sleepMethods[i];
             html += '<button class="btn btn-secondary" style="margin-bottom:6px;text-align:left;" onclick="pickSleepMethod(\'' + m + '\')">' +
                 (i + 1) + '. ' + t(sleepMethodNames[m]) + '</button>';
         }
-        html += '<button class="btn btn-secondary" style="margin-bottom:6px;text-align:left;" onclick="pickSleepMethod(\'black_only\')">' +
-            (sleepMethods.length + 1) + '. ' + t(sleepMethodNames['black_only']) + '</button>';
         document.getElementById('sleep-pick-best').style.display = '';
         document.getElementById('sleep-pick-best').innerHTML = html;
     }
