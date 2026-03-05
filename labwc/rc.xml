@@ -4,6 +4,7 @@
     <hide>yes</hide>
     <hideTimeout>0</hideTimeout>
     <size>1</size>
+    <theme>empty</theme>
   </cursor>
   <keyboard>
     <default />
