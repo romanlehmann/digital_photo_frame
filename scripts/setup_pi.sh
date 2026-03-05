@@ -338,16 +338,24 @@ fi
 # ---- Touchscreen check (wait if not detected) ----
 TOUCH_ID="27c0:0859"
 if ! lsusb | grep -q "$TOUCH_ID"; then
-    echo ""
-    echo "============================================"
-    echo "  No touchscreen detected!"
-    echo "  Please unplug and replug the screen's"
-    echo "  USB cable, then wait..."
-    echo "============================================"
+    log "No touchscreen detected, waiting for USB replug..."
+    # Show message on Pi's screen
+    cat > /dev/tty1 2>/dev/null << 'SCREEN' || true
+
+
+        ==========================================
+
+           No touchscreen detected!
+
+           Please unplug and replug the
+           screen's USB cable, then wait...
+
+        ==========================================
+SCREEN
     while ! lsusb | grep -q "$TOUCH_ID"; do
         sleep 2
     done
-    echo "Touchscreen found!"
+    log "Touchscreen found!"
     sleep 1
 fi
 
