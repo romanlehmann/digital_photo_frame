@@ -475,6 +475,13 @@
             connected: 'Connected!',
             connection_failed: 'Connection failed: ',
             wifi_connected: 'Connected to WiFi',
+            wifi_hotspot_info: 'Connect this frame to your WiFi network',
+            wifi_hotspot_steps: 'On your phone:',
+            wifi_step1: 'Connect to WiFi "PhotoFrame-Setup" (password: photoframe)',
+            wifi_step2: 'A setup page should open automatically',
+            wifi_step3: 'Select your home WiFi and enter the password',
+            wifi_step4: 'The frame will connect and continue automatically',
+            wifi_waiting: 'Waiting for WiFi connection...',
             signal: '% signal',
             ts_subtitle: 'Connect to your home NAS securely',
             ts_checking: 'Checking Tailscale status...',
@@ -508,7 +515,8 @@
             sleep_info: "We'll test different methods to turn off your screen. Each test lasts 10 seconds.",
             test_sleep: 'Start Tests',
             sleep_testing: 'Testing',
-            sleep_did_work: 'Did the screen turn off completely?',
+            sleep_did_work: 'Did the screen turn off and stay black?',
+            sleep_did_work_hdmi: 'Did the screen turn off? Only select "Yes" if you are OK with a "No Signal" message during sleep.',
             sleep_yes: 'Yes',
             sleep_no: 'No',
             sleep_success: 'Sleep method saved!',
@@ -564,6 +572,13 @@
             connected: 'Verbunden!',
             connection_failed: 'Verbindung fehlgeschlagen: ',
             wifi_connected: 'Mit WLAN verbunden',
+            wifi_hotspot_info: 'Verbinde den Rahmen mit deinem WLAN',
+            wifi_hotspot_steps: 'Auf deinem Handy:',
+            wifi_step1: 'Verbinde dich mit WLAN "PhotoFrame-Setup" (Passwort: photoframe)',
+            wifi_step2: 'Eine Einrichtungsseite sollte sich automatisch \u00f6ffnen',
+            wifi_step3: 'W\u00e4hle dein Heim-WLAN und gib das Passwort ein',
+            wifi_step4: 'Der Rahmen verbindet sich und f\u00e4hrt automatisch fort',
+            wifi_waiting: 'Warte auf WLAN-Verbindung...',
             signal: '% Signal',
             ts_subtitle: 'Sichere Verbindung zum NAS herstellen',
             ts_checking: 'Pr\u00fcfe Tailscale-Status...',
@@ -597,7 +612,8 @@
             sleep_info: 'Wir testen verschiedene Methoden, um den Bildschirm auszuschalten. Jeder Test dauert 10 Sekunden.',
             test_sleep: 'Schlafmodus testen',
             sleep_testing: 'Teste',
-            sleep_did_work: 'Hat sich der Bildschirm komplett ausgeschaltet?',
+            sleep_did_work: 'Hat sich der Bildschirm ausgeschaltet und ist schwarz geblieben?',
+            sleep_did_work_hdmi: 'Hat sich der Bildschirm ausgeschaltet? W\u00e4hle nur "Ja", wenn du mit einer "Kein Signal"-Meldung im Schlafmodus einverstanden bist.',
             sleep_yes: 'Ja',
             sleep_no: 'Nein',
             sleep_success: 'Schlafmethode gespeichert!',
@@ -700,21 +716,59 @@
         nextStep();
     }
 
-    // --- Step 2: WiFi ---
-    var wifiNetworks = [];
-    var wifiSelectedSSID = null;
-    var wifiConnecting = false;
+    // --- Step 3: WiFi ---
+    var wifiCheckInterval = null;
 
-    function wifiInit() {
-        // Check if already connected
+    function wifiStepInit() {
+        var content = document.getElementById('wifi-step-content');
+        var nextBtn = document.getElementById('wifi-next-btn');
+        content.innerHTML = '<div class="ts-status"><div class="label">' + t('ts_checking') + '</div></div>';
+        nextBtn.style.display = 'none';
+
         fetch('/api/wifi/status').then(function(r) { return r.json(); }).then(function(data) {
             if (data.mode === 'normal' && data.ssid) {
+                // Already connected
                 wifiConnected = true;
-                document.getElementById('wifi-status').innerHTML =
-                    '<div class="status-msg success">' + t('wifi_connected') + ': ' + esc(data.ssid) + '</div>';
+                content.innerHTML =
+                    '<div class="ts-status">' +
+                    '<div class="icon" style="color:#2a6;">&#10003;</div>' +
+                    '<div class="label">' + t('wifi_connected') + '</div>' +
+                    '<div class="detail" style="font-size:18px;color:#fff;margin-top:4px;">' + esc(data.ssid) + '</div>' +
+                    '</div>';
+                nextBtn.style.display = '';
+                if (wifiCheckInterval) { clearInterval(wifiCheckInterval); wifiCheckInterval = null; }
+            } else {
+                // Not connected - show hotspot instructions
+                content.innerHTML =
+                    '<div class="step-subtitle" data-i18n="wifi_subtitle">' + t('wifi_hotspot_info') + '</div>' +
+                    '<div class="ts-status" style="text-align:left;">' +
+                    '<div style="font-size:15px;color:#ccc;margin-bottom:12px;">' + t('wifi_hotspot_steps') + '</div>' +
+                    '<div style="font-size:14px;color:#888;">' +
+                    '1. ' + t('wifi_step1') + '<br>' +
+                    '2. ' + t('wifi_step2') + '<br>' +
+                    '3. ' + t('wifi_step3') + '<br>' +
+                    '4. ' + t('wifi_step4') +
+                    '</div>' +
+                    '</div>' +
+                    '<div id="wifi-waiting" class="status-msg info" style="margin-top:12px;">' +
+                    '<span class="spinner"></span> ' + t('wifi_waiting') +
+                    '</div>';
+                // Poll for connection
+                if (wifiCheckInterval) clearInterval(wifiCheckInterval);
+                wifiCheckInterval = setInterval(function() {
+                    fetch('/api/wifi/status').then(function(r) { return r.json(); }).then(function(d) {
+                        if (d.mode === 'normal' && d.ssid) {
+                            wifiConnected = true;
+                            clearInterval(wifiCheckInterval);
+                            wifiCheckInterval = null;
+                            wifiStepInit(); // re-render as connected
+                        }
+                    }).catch(function() {});
+                }, 5000);
             }
-        }).catch(function() {});
-        wifiScan();
+        }).catch(function() {
+            content.innerHTML = '<div class="status-msg error">' + t('scan_failed') + '</div>';
+        });
     }
 
     function wifiScan() {
@@ -1035,13 +1089,15 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            // Ask if it worked
+            // Ask if it worked (method-specific question for HDMI)
             renderSleepResults();
             var num = sleepMethodIdx + 1;
             var name = t(sleepMethodNames[method]);
+            var question = method === 'hdmi' ? t('sleep_did_work_hdmi') : t('sleep_did_work');
             document.getElementById('sleep-pick-best').style.display = '';
             document.getElementById('sleep-pick-best').innerHTML =
-                '<div style="margin:12px 0 8px;color:#ccc;font-size:14px;">' + num + '. ' + name + ' - ' + t('sleep_did_work') + '</div>' +
+                '<div style="margin:12px 0 8px;color:#ccc;font-size:14px;">' + num + '. ' + name + '</div>' +
+                '<div style="margin-bottom:10px;color:#aaa;font-size:13px;">' + question + '</div>' +
                 '<div style="display:flex;gap:8px;">' +
                 '<button class="btn btn-primary" style="flex:1;" onclick="sleepAnswer(true)">' + t('sleep_yes') + '</button>' +
                 '<button class="btn btn-secondary" style="flex:1;" onclick="sleepAnswer(false)">' + t('sleep_no') + '</button>' +

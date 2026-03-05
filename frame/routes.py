@@ -81,6 +81,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_tailscale_status()
         elif path == '/api/screen/detect':
             self.serve_screen_detect()
+        elif path == '/api/version':
+            self.serve_version()
         elif path.startswith('/photos/'):
             photo_name = path[8:]  # Remove '/photos/' prefix
             self.serve_photo(photo_name)
@@ -436,6 +438,24 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         self._json_response(status)
+
+    def serve_version(self):
+        """Serve version info (git commit hash and date)."""
+        import os
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        version = 'unknown'
+        date = ''
+        try:
+            result = subprocess.run(
+                ['git', 'log', '-1', '--format=%h %ci'],
+                capture_output=True, text=True, timeout=5, cwd=repo_dir)
+            if result.returncode == 0:
+                parts = result.stdout.strip().split(' ', 1)
+                version = parts[0]
+                date = parts[1].split(' ')[0] if len(parts) > 1 else ''
+        except Exception:
+            pass
+        self._json_response({'version': version, 'date': date})
 
     def serve_screen_detect(self):
         """Try to detect connected screen resolution."""

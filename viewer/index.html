@@ -643,6 +643,7 @@
                 <button class="settings-btn" id="sync-now-btn" onclick="triggerSyncFromViewer()">&#x1F504; Sync Now</button>
                 <button class="settings-btn" onclick="showSettingsPage('albums')">Photo Albums</button>
                 <button class="settings-btn" onclick="showSettingsPage('display')">Display</button>
+                <button class="settings-btn" onclick="showSettingsPage('about')">About</button>
                 <button class="settings-btn power-btn" onclick="showPowerPopup()"><span class="power-icon"></span></button>
             </div>
         </div>
@@ -765,6 +766,27 @@
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
             </div>
         </div>
+        <!-- About Page -->
+        <div id="settings-about" class="settings-page" style="display:none">
+            <h1 id="about-title">About</h1>
+            <div class="settings-section">
+                <div class="info-grid">
+                    <span class="info-label">Version:</span>
+                    <span class="info-value" id="about-version">--</span>
+                    <span class="info-label">Date:</span>
+                    <span class="info-value" id="about-date">--</span>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div style="font-size:14px;color:#888;line-height:1.6;">
+                    <div style="margin-bottom:8px;" id="about-license-text">Licensed under BUSL-1.1</div>
+                    <a href="https://github.com/rwkaspar/digital_photo_frame" style="color:#6af;text-decoration:none;" id="about-repo-link">github.com/rwkaspar/digital_photo_frame</a>
+                </div>
+            </div>
+            <div class="settings-buttons">
+                <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
+            </div>
+        </div>
     </div>
 
     <!-- Power Popup -->
@@ -837,6 +859,8 @@
                 clock_pos: 'Position',
                 on: 'On',
                 off: 'Off',
+                about: 'About',
+                about_license: 'Licensed under BUSL-1.1',
                 weekdays: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
             },
             de: {
@@ -887,6 +911,8 @@
                 clock_pos: 'Position',
                 on: 'An',
                 off: 'Aus',
+                about: '\u00dcber',
+                about_license: 'Lizenziert unter BUSL-1.1',
                 weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
             }
         };
@@ -909,7 +935,8 @@
             mainBtns[0].innerHTML = '&#x1F504; ' + t('sync_now');
             mainBtns[1].textContent = t('photo_albums');
             mainBtns[2].textContent = t('display');
-            // mainBtns[3] is power icon — no translation
+            mainBtns[3].textContent = t('about');
+            // mainBtns[4] is power icon — no translation
             // Display page
             document.getElementById('display-title').textContent = t('display');
             document.getElementById('brightness-title').textContent = t('brightness');
@@ -941,6 +968,11 @@
             var albumBtns = document.querySelectorAll('#settings-albums .settings-buttons .settings-btn');
             albumBtns[0].textContent = t('edit');
             albumBtns[1].textContent = t('back');
+            // About page
+            document.getElementById('about-title').textContent = t('about');
+            document.getElementById('about-license-text').textContent = t('about_license');
+            var aboutBtns = document.querySelectorAll('#settings-about .settings-buttons .settings-btn');
+            aboutBtns[0].textContent = t('back');
             // Power popup
             var powerBtns = document.querySelectorAll('.power-popup-inner .settings-btn');
             powerBtns[0].textContent = t('reboot');
@@ -1174,6 +1206,16 @@
             document.querySelectorAll('.settings-page').forEach(p => p.style.display = 'none');
             document.getElementById('settings-' + page).style.display = 'flex';
             if (page === 'albums') loadAlbums();
+            if (page === 'about') loadAbout();
+        }
+
+        async function loadAbout() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                document.getElementById('about-version').textContent = data.version || '--';
+                document.getElementById('about-date').textContent = data.date || '--';
+            } catch (e) {}
         }
 
         async function loadAlbums() {
