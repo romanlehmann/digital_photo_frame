@@ -671,6 +671,12 @@
     var currentStep = 1;
     var totalSteps = 7;
     var selectedOrientation = 'horizontal';
+    // Load current orientation from server
+    fetch('/orientation').then(function(r) { return r.json(); }).then(function(d) {
+        selectedOrientation = d.orientation || 'horizontal';
+        document.getElementById('orient-wiz-h').classList.toggle('selected', selectedOrientation === 'horizontal');
+        document.getElementById('orient-wiz-v').classList.toggle('selected', selectedOrientation === 'vertical');
+    }).catch(function() {});
     var albums = []; // [{type, url, passphrase, name}]
     var wifiConnected = false;
     var tailscaleIP = '';
@@ -986,19 +992,24 @@
     }
 
     function selectWizOrientation(o) {
+        var oldOrientation = selectedOrientation;
         selectedOrientation = o;
         document.getElementById('orient-wiz-h').classList.toggle('selected', o === 'horizontal');
         document.getElementById('orient-wiz-v').classList.toggle('selected', o === 'vertical');
-        // Save next step so we resume after reload
-        localStorage.setItem('wizard-step', '3');
-        // Save orientation and restart cage (triggers wlr-randr rotation)
+        // Save orientation
         fetch('/api/frame/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ orientation: o })
         }).then(function() {
-            // Reload page after cage restart to apply rotation
-            setTimeout(function() { window.location.reload(); }, 8000);
+            if (o !== oldOrientation) {
+                // Cage restarts for rotation — save step and wait for reload
+                localStorage.setItem('wizard-step', '3');
+                setTimeout(function() { window.location.reload(); }, 8000);
+            } else {
+                // Same orientation, no restart needed — just continue
+                showStep(3);
+            }
         });
     }
 
