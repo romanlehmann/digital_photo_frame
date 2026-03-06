@@ -55,13 +55,12 @@
             width: 200px;
             height: 200px;
             z-index: 1000;
-            clip-path: polygon(100% 0, 0 0, 100% 100%);
             background: transparent;
-            transition: background 0.3s ease;
+            touch-action: none;
         }
 
         #hot-corner.holding {
-            background: rgba(255, 255, 255, 0.25);
+            background: linear-gradient(to bottom left, rgba(255,255,255,0.15), transparent 70%);
         }
 
         #hot-corner-progress {

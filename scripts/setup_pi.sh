@@ -90,6 +90,11 @@ apt-get install -y \
     2>&1 | tee -a "$SETUP_LOG" || die "apt-get install failed"
 log "Packages installed."
 
+# ---- Timezone & NTP ----
+log "Configuring timezone and NTP..."
+timedatectl set-timezone Europe/Berlin 2>/dev/null || true
+timedatectl set-ntp true 2>/dev/null || true
+
 # ---- User groups ----
 echo "Setting up user groups..."
 usermod -aG video,input,render,netdev,i2c "${FRAME_USER}"
