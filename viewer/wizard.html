@@ -990,7 +990,7 @@
         document.getElementById('orient-wiz-h').classList.toggle('selected', o === 'horizontal');
         document.getElementById('orient-wiz-v').classList.toggle('selected', o === 'vertical');
         // Save next step so we resume after reload
-        sessionStorage.setItem('wizard-step', '3');
+        localStorage.setItem('wizard-step', '3');
         // Save orientation and restart cage (triggers wlr-randr rotation)
         fetch('/api/frame/settings', {
             method: 'POST',
@@ -1388,9 +1388,9 @@
     }
 
     // --- Init ---
-    var resumeStep = sessionStorage.getItem('wizard-step');
+    var resumeStep = localStorage.getItem('wizard-step');
     if (resumeStep) {
-        sessionStorage.removeItem('wizard-step');
+        localStorage.removeItem('wizard-step');
         var savedLang = localStorage.getItem('frame-language');
         if (savedLang) { lang = savedLang; applyI18n(); }
         showStep(parseInt(resumeStep));
