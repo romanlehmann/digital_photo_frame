@@ -299,7 +299,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         if self.app and self.app.syncer:
             data = self.app.syncer.get_status()
         else:
-            data = {'running': False, 'phase': 'disabled', 'error': 'syncer not initialized'}
+            data = {'running': False, 'phase': 'idle'}
         self._json_response(data)
 
     # --- Config endpoints ---
