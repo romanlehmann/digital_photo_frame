@@ -37,9 +37,30 @@ if [ ! -d "$REPO_DIR" ]; then
     die "repo not found at $REPO_DIR"
 fi
 
+# ---- Show setup progress on screen ----
+systemctl stop getty@tty1 2>/dev/null || true
+setterm --cursor off > /dev/tty1 2>/dev/null || true
+# Helper: show status on both log and display
+show() {
+    log "$1"
+    printf '\033[2J\033[H' > /dev/tty1 2>/dev/null || true
+    cat > /dev/tty1 2>/dev/null << SCREEN || true
+
+        ==========================================
+
+           Photo Frame  -  Setup
+
+           $1
+
+           Please wait...
+
+        ==========================================
+SCREEN
+}
+
 # ---- Check internet (needed for apt-get) ----
 # Wait for pre-configured WiFi (e.g. from Pi Imager) to connect
-log "Waiting for network (up to 30s for pre-configured WiFi)..."
+show "Waiting for network..."
 for i in $(seq 1 15); do
     if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
         log "Internet available after ${i} attempts."
@@ -86,7 +107,7 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
 fi
 
 # ---- System packages ----
-log "Installing packages..."
+show "Installing packages (this takes ~15 min)..."
 apt-get update -qq 2>&1 | tee -a "$SETUP_LOG" || die "apt-get update failed - no internet?"
 log "Installing all packages (single apt-get call)..."
 apt-get install -y \
@@ -120,7 +141,7 @@ fi
 chown -R "${FRAME_USER}:${FRAME_USER}" "${PHOTOS_DIR}"
 
 # ---- Python venv ----
-log "Setting up Python venv..."
+show "Installing Python dependencies..."
 cd "$REPO_DIR"
 su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt" || die "Python venv/pip setup failed"
 
@@ -172,7 +193,7 @@ echo "Configuring labwc..."
 chmod +x "${REPO_DIR}/labwc/autostart"
 
 # ---- Systemd services ----
-log "Installing systemd services..."
+show "Configuring services..."
 
 cat > /etc/systemd/system/photo_frame_server.service << EOF
 [Unit]
@@ -297,11 +318,11 @@ if [ -f "$CMDLINE" ]; then
     done
 fi
 
-# Disable login prompt on tty1
+# Disable login prompt on tty1 (permanently)
 systemctl disable getty@tty1 2>/dev/null || true
 
 # ---- Enable services ----
-log "Enabling services..."
+show "Almost done..."
 systemctl daemon-reload
 systemctl enable seatd photo_frame_server photo_frame_cage photo_frame_update.service photo_frame_update.timer
 systemctl start seatd 2>/dev/null || true
@@ -349,12 +370,7 @@ SCREEN
     sleep 1
 fi
 
-log ""
+show "Setup complete! Rebooting..."
 log "=== Setup complete! ==="
-echo "The frame will start automatically on next boot."
-echo "If WiFi was not configured, the frame will create a"
-echo "'PhotoFrame-Setup' hotspot for WiFi configuration."
-echo ""
-echo "Rebooting in 5 seconds..."
-sleep 5
+sleep 3
 reboot
