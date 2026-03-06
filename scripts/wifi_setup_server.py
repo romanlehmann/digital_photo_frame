@@ -52,9 +52,6 @@ def get_gateway_ip():
 def start_hotspot():
     run_cmd(["nmcli", "device", "wifi", "hotspot",
              "ssid", HOTSPOT_SSID, "password", HOTSPOT_PASSWORD])
-    # Captive portal: redirect all HTTP to us
-    run_cmd(["iptables", "-t", "nat", "-A", "PREROUTING",
-             "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-port", str(PORT)])
 
 
 def stop_hotspot():
