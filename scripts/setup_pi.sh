@@ -372,5 +372,10 @@ fi
 
 show "Setup complete! Rebooting..."
 log "=== Setup complete! ==="
+
+# Mark setup as done BEFORE rebooting (ExecStartPost won't run after reboot)
+touch "${FRAME_HOME}/.photo-frame-setup-done"
+systemctl disable photo-frame-firstboot.service 2>/dev/null || true
+
 sleep 3
 reboot
