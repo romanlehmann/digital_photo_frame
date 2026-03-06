@@ -96,13 +96,23 @@ def connect_wifi(ssid, password):
     if password:
         cmd += ["password", password]
     out, rc = run_cmd(cmd, timeout=30)
-    if rc == 0:
-        # Delete hotspot profile so NM doesn't auto-start it on next boot
-        delete_hotspot_profile()
-        return True, "Connected"
-    # Restart hotspot on failure
+    if rc != 0:
+        log(f"[wifi-setup] nmcli connect failed: {out}")
+        start_hotspot()
+        return False, out
+    # nmcli returned success — wait for actual internet connectivity
+    log(f"[wifi-setup] nmcli connected to {ssid}, verifying internet...")
+    for i in range(15):
+        time.sleep(2)
+        if has_internet():
+            log(f"[wifi-setup] Internet verified after {i+1} attempts")
+            delete_hotspot_profile()
+            return True, "Connected"
+    # Associated but no internet (bad password, no DHCP, etc.)
+    log(f"[wifi-setup] No internet after connecting to {ssid}, restarting hotspot")
+    run_cmd(["nmcli", "connection", "down", ssid], timeout=10)
     start_hotspot()
-    return False, out
+    return False, "Connected to WiFi but no internet"
 
 
 def delete_hotspot_profile():
@@ -143,12 +153,25 @@ class SetupHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _bg_connect(self, ssid, password):
+        try:
+            with open("/dev/tty1", "w") as tty:
+                tty.write(f"\n\n    Connecting to {ssid}...\n")
+        except Exception:
+            pass
         ok, msg = connect_wifi(ssid, password)
         if ok:
             log(f"[wifi-setup] Connected to {ssid}! Exiting.")
+            try:
+                with open("/dev/tty1", "w") as tty:
+                    tty.write(f"\n    Connected! Continuing setup...\n")
+            except Exception:
+                pass
+            time.sleep(1)
             os._exit(0)
         else:
             log(f"[wifi-setup] Failed: {msg}")
+            gateway_ip = get_gateway_ip()
+            update_tty_display(gateway_ip)
 
     def _serve_file(self, filename, content_type):
         path = os.path.join(VIEWER_DIR, filename)
