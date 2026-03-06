@@ -38,6 +38,16 @@ if [ ! -d "$REPO_DIR" ]; then
 fi
 
 # ---- Check internet (needed for apt-get) ----
+# Wait for pre-configured WiFi (e.g. from Pi Imager) to connect
+log "Waiting for network (up to 30s for pre-configured WiFi)..."
+for i in $(seq 1 15); do
+    if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+        log "Internet available after ${i} attempts."
+        break
+    fi
+    sleep 2
+done
+
 log "Checking internet connectivity..."
 if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     log "No internet. Preparing WiFi hotspot..."
