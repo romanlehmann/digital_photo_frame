@@ -8,11 +8,17 @@ CONFIG="${REPO_DIR}/config_frame.yaml"
 RULES_FILE=/etc/udev/rules.d/99-touchscreen-cal.rules
 
 ORIENTATION=$(python3 -c "
-import yaml
 try:
+    import yaml
     with open('$CONFIG') as f:
         print(yaml.safe_load(f).get('frame',{}).get('orientation','horizontal'))
-except: print('horizontal')
+except:
+    import re
+    try:
+        text = open('$CONFIG').read()
+        m = re.search(r'orientation:\s*(\w+)', text)
+        print(m.group(1) if m else 'horizontal')
+    except: print('horizontal')
 " 2>/dev/null)
 
 if [ "$ORIENTATION" = "vertical" ]; then

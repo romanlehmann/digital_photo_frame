@@ -89,10 +89,6 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     done
     log "WiFi ready: ${WIFI_READY}"
     log "Devices: $(nmcli -t -f DEVICE,TYPE,STATE device status 2>&1)"
-    # Prepare tty1 for display (wifi_setup_server.py will show full instructions with IP)
-    systemctl stop getty@tty1 2>/dev/null || true
-    setterm --cursor off > /dev/tty1 2>/dev/null || true
-    echo "Starting WiFi setup..." > /dev/tty1 2>/dev/null || true
     log "Starting wifi_setup_server.py..."
     python3 "${REPO_DIR}/scripts/wifi_setup_server.py" 2>&1 | tee -a "$SETUP_LOG"
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
@@ -336,15 +332,11 @@ if [ ! -d "${REPO_DIR}/.git" ]; then
     su - "${FRAME_USER}" -c "cd ${REPO_DIR} && git init && git remote add origin https://github.com/rwkaspar/digital_photo_frame.git && git fetch origin main && git reset --mixed origin/main" 2>/dev/null || true
 fi
 
+# ---- Ensure git branch is 'main' with correct upstream ----
+su - "${FRAME_USER}" -c "cd ${REPO_DIR} && git branch -m master main 2>/dev/null; git branch --set-upstream-to=origin/main main 2>/dev/null" || true
+
 # ---- Configure git safe directory (for auto-update as frame_user) ----
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}" 2>/dev/null || true
-
-# ---- Copy default placeholder photos (pre-generated in repo) ----
-echo "Copying default photos..."
-if [ -d "${REPO_DIR}/viewer/defaults/horizontal" ]; then
-    cp "${REPO_DIR}/viewer/defaults/horizontal/"*.jpg "${PHOTOS_DIR}/horizontal/" 2>/dev/null || true
-    cp "${REPO_DIR}/viewer/defaults/vertical/"*.jpg "${PHOTOS_DIR}/vertical/" 2>/dev/null || true
-fi
 
 # ---- Touchscreen check (wait if not detected) ----
 TOUCH_ID="27c0:0859"
