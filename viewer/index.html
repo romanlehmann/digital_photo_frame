@@ -616,6 +616,7 @@
     <div id="error"></div>
     <div id="slideshow"></div>
     <div id="clock-overlay">00:00</div>
+    <div id="touch-warning" style="display:none; position:fixed; bottom:8px; left:50%; transform:translateX(-50%); background:rgba(200,50,50,0.85); color:#fff; padding:6px 16px; border-radius:16px; font-size:13px; z-index:5; pointer-events:none;">&#9888; Touchscreen not detected — check USB</div>
     <div id="sleep-overlay"></div>
 
     <div id="settings-overlay">
@@ -1430,6 +1431,9 @@
                 document.getElementById('info-temp').textContent = info.cpu_temp != null ? info.cpu_temp + ' C' : '--';
                 document.getElementById('info-disk').textContent = info.disk || '--';
                 document.getElementById('info-photos').textContent = info.photo_count || '0';
+                // Touchscreen warning
+                var touchWarn = document.getElementById('touch-warning');
+                if (touchWarn) touchWarn.style.display = info.touchscreen === false ? '' : 'none';
             } catch (e) {
                 console.error('Failed to load sysinfo:', e);
             }

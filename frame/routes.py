@@ -71,6 +71,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_immich_config()
         elif path == '/api/album_names':
             self.serve_album_names()
+        elif path == '/api/frame/settings':
+            self.serve_frame_settings()
         elif path == '/api/qrcode':
             self.serve_qrcode(parsed_path)
         elif path == '/setup':
@@ -294,6 +296,20 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         orientation = self._get_orientation()
         self._json_response({'orientation': orientation})
 
+    def serve_frame_settings(self):
+        """Serve frame settings (safe subset, no passwords)."""
+        cfg = self.app.config
+        data = {
+            'frame': cfg.get('frame', {}),
+            'slideshow': cfg.get('slideshow', {}),
+            'energy_save': cfg.get('energy_save', {}),
+            'synology': {'share_urls': cfg.get('synology', {}).get('share_urls', [])},
+            'google_photos': {'share_urls': cfg.get('google_photos', {}).get('share_urls', [])},
+            'immich': {'share_urls': cfg.get('immich', {}).get('share_urls', [])},
+            'sleep_method': cfg.get('energy_save', {}).get('method', 'ddcci'),
+        }
+        self._json_response(data)
+
     def serve_sync_status(self):
         """Serve photo sync status as JSON."""
         if self.app and self.app.syncer:
@@ -392,7 +408,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             return
         try:
             import segno
-            qr = segno.make(text, error='m')
+            qr = segno.make(text, error='L')
             matrix = qr.matrix
             modules = []
             for row in matrix:
@@ -773,23 +789,43 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
     def handle_tailscale_up(self):
         """Start Tailscale and return auth URL if needed."""
         try:
-            result = subprocess.run(
-                ['sudo', 'tailscale', 'up', '--timeout=30s'],
-                capture_output=True, text=True, timeout=35)
-            # Check if auth URL is in output
+            # Kill any previous tailscale up, then start fresh
+            subprocess.run(['sudo', 'pkill', '-f', 'tailscale up'],
+                          capture_output=True, timeout=3)
+            time.sleep(1)
+            # Start tailscale up with long timeout (background — don't block HTTP)
+            subprocess.Popen(
+                ['sudo', 'tailscale', 'up', '--timeout=300s'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Wait for auth URL to appear in tailscale status
             auth_url = ''
-            for line in (result.stdout + result.stderr).split('\n'):
-                line = line.strip()
-                if 'https://login.tailscale.com/' in line:
-                    # Extract URL from line
-                    for word in line.split():
-                        if word.startswith('https://login.tailscale.com/'):
-                            auth_url = word
-                            break
-            if result.returncode == 0:
-                self._json_response({'ok': True, 'auth_url': auth_url})
-            else:
-                self._json_response({'ok': True, 'auth_url': auth_url, 'message': 'Needs authentication'})
+            for attempt in range(15):
+                time.sleep(1)
+                result = subprocess.run(
+                    ['sudo', 'tailscale', 'status'],
+                    capture_output=True, text=True, timeout=5)
+                output = result.stdout + result.stderr
+                for line in output.split('\n'):
+                    if 'https://login.tailscale.com/' in line:
+                        for word in line.split():
+                            if word.startswith('https://login.tailscale.com/'):
+                                auth_url = word
+                                break
+                if auth_url:
+                    break
+                # Already connected?
+                if 'logged in' in output.lower() or result.returncode == 0 and 'login.tailscale.com' not in output:
+                    # Check if actually connected with IP
+                    json_result = subprocess.run(
+                        ['sudo', 'tailscale', 'status', '--json'],
+                        capture_output=True, text=True, timeout=5)
+                    if json_result.returncode == 0:
+                        status = json.loads(json_result.stdout)
+                        if status.get('BackendState') == 'Running':
+                            self._json_response({'ok': True, 'auth_url': ''})
+                            return
+            self._json_response({'ok': True, 'auth_url': auth_url,
+                                'message': 'Needs authentication' if auth_url else ''})
         except Exception as e:
             logger.error(f"Tailscale up error: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 500)

@@ -59,15 +59,18 @@ SCREEN
 }
 
 # ---- Check internet (needed for apt-get) ----
-# Wait for pre-configured WiFi (e.g. from Pi Imager) to connect
-show "Waiting for network..."
-for i in $(seq 1 15); do
-    if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
-        log "Internet available after ${i} attempts."
-        break
-    fi
-    sleep 2
-done
+if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+    log "Internet already available, skipping network wait."
+else
+    show "Waiting for network..."
+    for i in $(seq 1 15); do
+        if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+            log "Internet available after ${i} attempts."
+            break
+        fi
+        sleep 2
+    done
+fi
 
 log "Checking internet connectivity..."
 if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
@@ -102,25 +105,53 @@ if ! ping -c 1 -W 5 8.8.8.8 &>/dev/null; then
     sleep 2
 fi
 
-# ---- System packages ----
-show "Installing packages (this takes ~15 min)..."
-apt-get update -qq 2>&1 | tee -a "$SETUP_LOG" || die "apt-get update failed - no internet?"
-log "Installing all packages (single apt-get call)..."
-apt-get install -y \
-    git python3-venv python3-dev \
-    labwc wlr-randr seatd \
-    chromium \
-    ddcutil i2c-tools \
-    network-manager \
-    libjpeg-dev zlib1g-dev libffi-dev libheif-dev \
-    fonts-noto-color-emoji \
-    2>&1 | tee -a "$SETUP_LOG" || die "apt-get install failed"
-log "Packages installed."
+# ---- System packages (with retry) ----
+PACKAGES="git python3-venv python3-dev labwc wlr-randr seatd chromium ddcutil i2c-tools network-manager libjpeg-dev zlib1g-dev libffi-dev libheif-dev fonts-noto-color-emoji"
+
+MISSING_PKGS=""
+for pkg in $PACKAGES; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        MISSING_PKGS="$MISSING_PKGS $pkg"
+    fi
+done
+
+if [ -n "$MISSING_PKGS" ]; then
+    install_packages() {
+        apt-get update -qq 2>&1 | tee -a "$SETUP_LOG"
+        apt-get install -y --fix-missing $PACKAGES 2>&1 | tee -a "$SETUP_LOG"
+    }
+
+    show "Installing packages (this takes ~15 min)..."
+    if ! install_packages; then
+        log "First apt attempt failed, retrying in 10s..."
+        sleep 10
+        if ! install_packages; then
+            log "Second apt attempt failed, retrying in 30s..."
+            sleep 30
+            install_packages || log "ERROR: apt-get install failed after 3 attempts"
+        fi
+    fi
+    for pkg in python3-dev labwc chromium seatd libheif-dev wlr-randr fonts-noto-color-emoji ddcutil; do
+        if ! dpkg -s "$pkg" &>/dev/null; then
+            log "WARNING: $pkg missing, attempting individual install..."
+            apt-get install -y "$pkg" 2>&1 | tee -a "$SETUP_LOG" || log "WARNING: could not install $pkg"
+        fi
+    done
+    log "Packages installed."
+else
+    log "All packages already installed, skipping."
+fi
 
 # ---- Timezone & NTP ----
 log "Configuring timezone and NTP..."
 timedatectl set-timezone Europe/Berlin 2>/dev/null || true
 timedatectl set-ntp true 2>/dev/null || true
+
+# ---- i2c-dev module (needed for ddcutil / DDC/CI backlight control) ----
+if ! grep -q "i2c-dev" /etc/modules-load.d/i2c-dev.conf 2>/dev/null; then
+    echo "i2c-dev" > /etc/modules-load.d/i2c-dev.conf
+fi
+modprobe i2c-dev 2>/dev/null || true
 
 # ---- User groups ----
 echo "Setting up user groups..."
@@ -129,17 +160,45 @@ usermod -aG video,input,render,netdev,i2c "${FRAME_USER}"
 # ---- Photos directory ----
 echo "Creating photos directory..."
 mkdir -p "${PHOTOS_DIR}/horizontal" "${PHOTOS_DIR}/vertical"
-# Copy default placeholder images so the frame has something to show immediately
-if [ -d "${REPO_DIR}/viewer/defaults/horizontal" ]; then
+# Copy default placeholder images only if photos directory is empty (first run)
+if [ -d "${REPO_DIR}/viewer/defaults/horizontal" ] && [ -z "$(ls -A "${PHOTOS_DIR}/horizontal/" 2>/dev/null)" ]; then
     cp "${REPO_DIR}/viewer/defaults/horizontal/"*.jpg "${PHOTOS_DIR}/horizontal/" 2>/dev/null || true
     cp "${REPO_DIR}/viewer/defaults/vertical/"*.jpg "${PHOTOS_DIR}/vertical/" 2>/dev/null || true
 fi
 chown -R "${FRAME_USER}:${FRAME_USER}" "${PHOTOS_DIR}"
 
-# ---- Python venv ----
-show "Installing Python dependencies..."
-cd "$REPO_DIR"
-su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt" || die "Python venv/pip setup failed"
+# ---- Python venv (with retry) ----
+VENV_DIR="${REPO_DIR}/venv"
+VENV_NEEDS_UPDATE=false
+
+if [ ! -x "${VENV_DIR}/bin/python" ] || ! "${VENV_DIR}/bin/python" -c "import sys" &>/dev/null; then
+    VENV_NEEDS_UPDATE=true
+elif [ -f "${VENV_DIR}/.requirements_md5" ]; then
+    CURRENT_MD5=$(md5sum "${REPO_DIR}/requirements.txt" 2>/dev/null | awk '{print $1}')
+    SAVED_MD5=$(cat "${VENV_DIR}/.requirements_md5" 2>/dev/null)
+    if [ "$CURRENT_MD5" != "$SAVED_MD5" ]; then
+        VENV_NEEDS_UPDATE=true
+    fi
+else
+    VENV_NEEDS_UPDATE=true
+fi
+
+if [ "$VENV_NEEDS_UPDATE" = true ]; then
+    show "Installing Python dependencies..."
+    cd "$REPO_DIR"
+    pip_install() {
+        su - "${FRAME_USER}" -c "cd ${REPO_DIR} && python3 -m venv venv && venv/bin/pip install --quiet -r requirements.txt"
+    }
+    if ! pip_install; then
+        log "First pip attempt failed, retrying..."
+        sleep 5
+        pip_install || log "ERROR: Python venv/pip setup failed after 2 attempts"
+    fi
+    md5sum "${REPO_DIR}/requirements.txt" 2>/dev/null | awk '{print $1}' > "${VENV_DIR}/.requirements_md5"
+    chown "${FRAME_USER}:${FRAME_USER}" "${VENV_DIR}/.requirements_md5"
+else
+    log "Python venv up to date, skipping."
+fi
 
 # ---- Config file ----
 if [ ! -f "${REPO_DIR}/config_frame.yaml" ]; then
@@ -338,12 +397,14 @@ su - "${FRAME_USER}" -c "cd ${REPO_DIR} && git branch -m master main 2>/dev/null
 # ---- Configure git safe directory (for auto-update as frame_user) ----
 su - "${FRAME_USER}" -c "git config --global --add safe.directory ${REPO_DIR}" 2>/dev/null || true
 
-# ---- Touchscreen check (wait if not detected) ----
+# ---- Touchscreen check (wait if not detected, first run only) ----
 TOUCH_ID="27c0:0859"
 if ! lsusb | grep -q "$TOUCH_ID"; then
-    log "No touchscreen detected, waiting for USB replug..."
-    # Show message on Pi's screen
-    cat > /dev/tty1 2>/dev/null << 'SCREEN' || true
+    if [ -f "${FRAME_HOME}/.photo-frame-setup-done" ]; then
+        log "No touchscreen detected (re-run, skipping wait)."
+    else
+        log "No touchscreen detected, waiting for USB replug..."
+        cat > /dev/tty1 2>/dev/null << 'SCREEN' || true
 
 
         ==========================================
@@ -355,19 +416,29 @@ if ! lsusb | grep -q "$TOUCH_ID"; then
 
         ==========================================
 SCREEN
-    while ! lsusb | grep -q "$TOUCH_ID"; do
-        sleep 2
-    done
-    log "Touchscreen found!"
-    sleep 1
+        while ! lsusb | grep -q "$TOUCH_ID"; do
+            sleep 2
+        done
+        log "Touchscreen found!"
+        sleep 1
+    fi
 fi
 
-show "Setup complete! Rebooting..."
+show "Setup complete!"
 log "=== Setup complete! ==="
 
-# Mark setup as done BEFORE rebooting (ExecStartPost won't run after reboot)
+FIRST_RUN=false
+if [ ! -f "${FRAME_HOME}/.photo-frame-setup-done" ]; then
+    FIRST_RUN=true
+fi
+
 touch "${FRAME_HOME}/.photo-frame-setup-done"
 systemctl disable photo-frame-firstboot.service 2>/dev/null || true
 
-sleep 3
-reboot
+if [ "$FIRST_RUN" = true ]; then
+    log "First run — rebooting..."
+    sleep 3
+    reboot
+else
+    log "Re-run complete — no reboot needed."
+fi

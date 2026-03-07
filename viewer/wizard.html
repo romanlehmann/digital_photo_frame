@@ -161,7 +161,7 @@
             justify-content: center;
             margin: 16px 0;
         }
-        .qr-container canvas { border-radius: 8px; }
+        .qr-container canvas { border-radius: 4px; background: #fff; padding: 16px; }
         .qr-link {
             display: block;
             text-align: center;
@@ -407,20 +407,15 @@
         </div>
     </div>
 
-    <!-- Step 5: Sleep Mode Test -->
+    <!-- Step 5: Sleep Mode -->
     <div class="step" id="step-5">
         <div class="step-title" data-i18n="sleep_title">Sleep Mode</div>
-        <div class="step-subtitle" data-i18n="sleep_subtitle">Test how the frame turns off the screen backlight</div>
-        <div id="sleep-test-status" class="ts-status">
-            <div class="label" data-i18n="sleep_info">We'll test different methods to turn off your screen's backlight. Each test lasts 10 seconds.</div>
-        </div>
-        <div id="sleep-test-results"></div>
-        <button class="btn btn-primary" onclick="startSleepTests()" id="btn-sleep-test" data-i18n="test_sleep">Test Sleep Mode</button>
-        <div id="sleep-pick-best" style="display:none;"></div>
+        <div class="step-subtitle" data-i18n="sleep_subtitle_pick">How should the frame turn off the screen?</div>
+        <div id="sleep-method-list"></div>
+        <div id="sleep-test-area" style="margin-top:12px;"></div>
         <div class="spacer"></div>
         <div style="margin-top:16px;">
-            <button class="btn btn-primary" onclick="nextStep()" id="sleep-next-btn" data-i18n="next">Next</button>
-            <button class="btn btn-skip" onclick="nextStep()" data-i18n="skip">Skip</button>
+            <button class="btn btn-primary" onclick="nextStep()" data-i18n="next">Next</button>
             <button class="btn btn-back" onclick="prevStep()" data-i18n="back">Back</button>
         </div>
     </div>
@@ -512,6 +507,8 @@
             blur_darken: 'Blur darken',
             sleep_title: 'Sleep Mode',
             sleep_subtitle: 'Test how the frame turns off the screen backlight',
+            sleep_subtitle_pick: 'How should the frame turn off the screen?',
+            sleep_test_btn: 'Test selected method',
             sleep_info: "We'll test different methods to turn off your screen. Each test lasts 10 seconds.",
             test_sleep: 'Start Tests',
             sleep_testing: 'Testing',
@@ -520,11 +517,12 @@
             sleep_yes: 'Yes',
             sleep_no: 'No',
             sleep_success: 'Sleep method saved!',
+            sleep_test_done: 'Test complete. Did the screen turn off?',
             sleep_fallback: 'No method worked perfectly. Which one had the best result?',
             sleep_pick_best: 'Select the best method:',
             sleep_test_note: 'During the test, the display stays active. In real sleep mode the display service is also stopped, which may improve the result.',
             sleep_method_hdmi: 'Disable HDMI signal',
-            sleep_method_ddcci: 'Brightness to 0 (DDC/CI)',
+            sleep_method_ddcci: 'Power off via DDC/CI (best for ANMITE 14" touchscreen)',
             sleep_method_dpms: 'DPMS standby',
             sleep_method_brightness: 'Brightness to 0 (sysfs)',
             sleep_method_black_only: 'Black screen only (no backlight control)',
@@ -609,6 +607,8 @@
             blur_darken: 'Unsch\u00e4rfe-Abdunklung',
             sleep_title: 'Schlafmodus',
             sleep_subtitle: 'Testen, wie der Rahmen die Hintergrundbeleuchtung ausschaltet',
+            sleep_subtitle_pick: 'Wie soll der Rahmen den Bildschirm ausschalten?',
+            sleep_test_btn: 'Ausgew\u00e4hlte Methode testen',
             sleep_info: 'Wir testen verschiedene Methoden, um den Bildschirm auszuschalten. Jeder Test dauert 10 Sekunden.',
             test_sleep: 'Schlafmodus testen',
             sleep_testing: 'Teste',
@@ -617,11 +617,12 @@
             sleep_yes: 'Ja',
             sleep_no: 'Nein',
             sleep_success: 'Schlafmethode gespeichert!',
+            sleep_test_done: 'Test abgeschlossen. Hat der Bildschirm sich ausgeschaltet?',
             sleep_fallback: 'Keine Methode hat perfekt funktioniert. Welche hatte das beste Ergebnis?',
             sleep_pick_best: 'Beste Methode w\u00e4hlen:',
             sleep_test_note: 'W\u00e4hrend des Tests bleibt das Display aktiv. Im echten Schlafmodus wird auch der Display-Dienst gestoppt, was das Ergebnis verbessern kann.',
             sleep_method_hdmi: 'HDMI-Signal deaktivieren',
-            sleep_method_ddcci: 'Helligkeit auf 0 (DDC/CI)',
+            sleep_method_ddcci: 'Power off via DDC/CI (ideal f\u00fcr ANMITE 14" Touchscreen)',
             sleep_method_dpms: 'DPMS-Standby',
             sleep_method_brightness: 'Helligkeit auf 0 (sysfs)',
             sleep_method_black_only: 'Nur Schwarzbild (keine Hintergrundbeleuchtung)',
@@ -693,7 +694,7 @@
         if (n === 3) tailscaleInit();
         if (n === 4) frameSettingsInit();
         if (n === 5) sleepTestInit();
-        if (n === 6) albumsRender();
+        if (n === 6) { albumsRender(); startAlbumPolling(); }
         if (n === 7) renderSummary();
     }
 
@@ -925,13 +926,20 @@
                 .then(function(r) { return r.json(); })
                 .then(function(qr) { drawQR('ts-qr-canvas', qr.modules); })
                 .catch(function() {});
-                // Poll for connection
+                // Poll for connection (only update UI when actually connected)
                 tsPolling = setInterval(function() {
                     fetch('/api/tailscale/status').then(function(r) { return r.json(); }).then(function(d) {
                         if (d.status === 'connected') {
                             clearInterval(tsPolling);
                             tsPolling = null;
-                            checkTailscale();
+                            tailscaleIP = d.ip || '';
+                            var statusEl = document.getElementById('ts-status');
+                            statusEl.innerHTML = '<div class="icon" style="color:#2a6;">&#10003;</div>' +
+                                '<div class="label">' + t('ts_connected') + '</div>' +
+                                (d.ip ? '<div class="ip">' + esc(d.ip) + '</div>' : '');
+                            document.getElementById('ts-actions').innerHTML = '';
+                            document.getElementById('ts-qr').innerHTML = '';
+                            document.getElementById('ts-next-btn').style.display = '';
                         }
                     }).catch(function() {});
                 }, 3000);
@@ -948,16 +956,17 @@
         var canvas = document.getElementById(canvasId);
         if (!canvas || !modules) return;
         var size = modules.length;
-        var scale = Math.min(Math.floor(240 / size), 8);
-        canvas.width = size * scale;
-        canvas.height = size * scale;
+        var scale = Math.max(Math.min(Math.floor(400 / size), 12), 4);
+        var quiet = scale * 4; // quiet zone around QR
+        canvas.width = size * scale + quiet * 2;
+        canvas.height = size * scale + quiet * 2;
         var ctx = canvas.getContext('2d');
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#000';
         for (var y = 0; y < size; y++) {
             for (var x = 0; x < size; x++) {
-                if (modules[y][x]) ctx.fillRect(x * scale, y * scale, scale, scale);
+                if (modules[y][x]) ctx.fillRect(quiet + x * scale, quiet + y * scale, scale, scale);
             }
         }
     }
@@ -1036,137 +1045,63 @@
     }
 
     // --- Step 5: Sleep Mode Test ---
-    var sleepMethods = ['hdmi', 'ddcci', 'dpms', 'brightness'];
+    var allSleepMethods = ['ddcci', 'dpms', 'brightness', 'black_only'];
     var sleepMethodNames = { hdmi: 'sleep_method_hdmi', ddcci: 'sleep_method_ddcci', dpms: 'sleep_method_dpms', brightness: 'sleep_method_brightness', black_only: 'sleep_method_black_only' };
-    var sleepMethodIdx = 0;
-    var sleepResults = {};  // method -> true/false
-    var selectedSleepMethod = 'black_only';
+    var selectedSleepMethod = 'ddcci';
 
     function sleepTestInit() {
-        sleepMethodIdx = 0;
-        sleepResults = {};
-        selectedSleepMethod = 'black_only';
-        document.getElementById('sleep-test-results').innerHTML = '';
-        document.getElementById('sleep-pick-best').style.display = 'none';
-        var btn = document.getElementById('btn-sleep-test');
-        btn.style.display = '';
-        btn.disabled = false;
-        btn.textContent = t('test_sleep');
+        // Load current method from server
+        fetch('/api/frame/settings').then(function(r) { return r.json(); }).then(function(data) {
+            if (data.sleep_method) selectedSleepMethod = data.sleep_method;
+            renderSleepMethods();
+        }).catch(function() { renderSleepMethods(); });
     }
 
-    function renderSleepResults() {
+    function renderSleepMethods() {
         var html = '';
-        for (var i = 0; i < sleepMethods.length; i++) {
-            var m = sleepMethods[i];
-            var num = i + 1;
+        for (var i = 0; i < allSleepMethods.length; i++) {
+            var m = allSleepMethods[i];
             var name = t(sleepMethodNames[m]);
-            var status = '';
-            if (m in sleepResults) {
-                status = sleepResults[m]
-                    ? '<span style="color:#2a6;">&#10003;</span>'
-                    : '<span style="color:#c44;">&#10007;</span>';
-            } else if (i === sleepMethodIdx) {
-                status = '<span class="spinner" style="width:16px;height:16px;"></span>';
-            } else {
-                status = '<span style="color:#666;">-</span>';
-            }
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;' +
-                'background:#1a1a1a;border-radius:8px;margin-bottom:6px;">' +
-                '<span style="color:#ccc;font-size:14px;">' + num + '. ' + name + '</span>' +
-                '<span style="font-size:18px;">' + status + '</span></div>';
+            var selected = m === selectedSleepMethod;
+            html += '<button class="btn ' + (selected ? 'btn-primary' : 'btn-secondary') + '" ' +
+                'style="margin-bottom:8px;text-align:left;width:100%;' + (selected ? '' : 'opacity:0.7;') + '" ' +
+                'onclick="pickSleepMethod(\'' + m + '\')">' +
+                (selected ? '&#10003; ' : '') + name + '</button>';
         }
-        document.getElementById('sleep-test-results').innerHTML = html;
-    }
-
-    function startSleepTests() {
-        sleepTestInit();
-        runNextSleepTest();
-    }
-
-    function runNextSleepTest() {
-        if (sleepMethodIdx >= sleepMethods.length) {
-            sleepTestsDone();
-            return;
-        }
-        var method = sleepMethods[sleepMethodIdx];
-        var btn = document.getElementById('btn-sleep-test');
-        btn.style.display = 'none';
-        renderSleepResults();
-
-        fetch('/api/sleep/test', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: method, duration: 10 })
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            // Ask if it worked (method-specific question for HDMI)
-            renderSleepResults();
-            var num = sleepMethodIdx + 1;
-            var name = t(sleepMethodNames[method]);
-            var question = method === 'hdmi' ? t('sleep_did_work_hdmi') : t('sleep_did_work');
-            document.getElementById('sleep-pick-best').style.display = '';
-            document.getElementById('sleep-pick-best').innerHTML =
-                '<div style="margin:12px 0 8px;color:#ccc;font-size:14px;">' + num + '. ' + name + '</div>' +
-                '<div style="margin-bottom:10px;color:#aaa;font-size:13px;">' + question + '</div>' +
-                '<div style="display:flex;gap:8px;">' +
-                '<button class="btn btn-primary" style="flex:1;" onclick="sleepAnswer(true)">' + t('sleep_yes') + '</button>' +
-                '<button class="btn btn-secondary" style="flex:1;" onclick="sleepAnswer(false)">' + t('sleep_no') + '</button>' +
-                '</div>';
-        })
-        .catch(function() {
-            sleepResults[method] = false;
-            sleepMethodIdx++;
-            runNextSleepTest();
-        });
-    }
-
-    function sleepAnswer(worked) {
-        var method = sleepMethods[sleepMethodIdx];
-        sleepResults[method] = worked;
-        if (worked) {
-            // Found a working method - save it immediately
-            selectedSleepMethod = method;
-            saveSleepMethod(method);
-            renderSleepResults();
-            document.getElementById('sleep-pick-best').style.display = '';
-            document.getElementById('sleep-pick-best').innerHTML =
-                '<div class="status-msg success">' + t('sleep_success') + ' (' + t(sleepMethodNames[method]) + ')</div>';
-            return;
-        }
-        sleepMethodIdx++;
-        document.getElementById('sleep-pick-best').style.display = 'none';
-        runNextSleepTest();
-    }
-
-    function sleepTestsDone() {
-        renderSleepResults();
-        // Check if any worked
-        var anyWorked = false;
-        for (var m in sleepResults) { if (sleepResults[m]) { anyWorked = true; break; } }
-        if (anyWorked) return; // already saved
-
-        // None worked perfectly - let user pick the best one (only tested methods)
-        var html = '<div style="margin:12px 0 8px;color:#f90;font-size:14px;">' + t('sleep_fallback') + '</div>';
-        html += '<div style="color:#888;font-size:13px;margin-bottom:10px;">' + t('sleep_test_note') + '</div>';
-        for (var i = 0; i < sleepMethods.length; i++) {
-            var m = sleepMethods[i];
-            html += '<button class="btn btn-secondary" style="margin-bottom:6px;text-align:left;" onclick="pickSleepMethod(\'' + m + '\')">' +
-                (i + 1) + '. ' + t(sleepMethodNames[m]) + '</button>';
-        }
-        document.getElementById('sleep-pick-best').style.display = '';
-        document.getElementById('sleep-pick-best').innerHTML = html;
+        document.getElementById('sleep-method-list').innerHTML = html;
+        // Show test button
+        document.getElementById('sleep-test-area').innerHTML =
+            '<button class="btn btn-secondary" style="width:100%;opacity:0.7;" onclick="testSleepMethod()">' + t('sleep_test_btn') + '</button>';
     }
 
     function pickSleepMethod(method) {
         selectedSleepMethod = method;
+        renderSleepMethods();
         saveSleepMethod(method);
-        document.getElementById('sleep-pick-best').innerHTML =
-            '<div class="status-msg success">' + t('sleep_success') + ' (' + t(sleepMethodNames[method]) + ')</div>';
+    }
+
+    function testSleepMethod() {
+        var area = document.getElementById('sleep-test-area');
+        area.innerHTML = '<div class="status-msg info"><span class="spinner"></span> ' + t('sleep_testing') + ' ' + t(sleepMethodNames[selectedSleepMethod]) + '...</div>';
+        fetch('/api/sleep/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ method: selectedSleepMethod, duration: 10 })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+            area.innerHTML =
+                '<div class="status-msg success">' + t('sleep_test_done') + '</div>' +
+                '<button class="btn btn-secondary" style="width:100%;opacity:0.7;margin-top:8px;" onclick="testSleepMethod()">' + t('sleep_test_btn') + '</button>';
+        })
+        .catch(function() {
+            area.innerHTML =
+                '<div class="status-msg error">' + t('test_failed') + '</div>' +
+                '<button class="btn btn-secondary" style="width:100%;opacity:0.7;margin-top:8px;" onclick="testSleepMethod()">' + t('sleep_test_btn') + '</button>';
+        });
     }
 
     function saveSleepMethod(method) {
-        selectedSleepMethod = method;
         fetch('/api/frame/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1178,6 +1113,15 @@
     var addingAlbum = false;
     var addAlbumType = 'synology';
     var testedAlbumName = '';
+    var albumPolling = null;
+
+    function startAlbumPolling() {
+        if (albumPolling) clearInterval(albumPolling);
+        albumPolling = setInterval(function() {
+            if (currentStep !== 6) { clearInterval(albumPolling); albumPolling = null; return; }
+            albumsRender();
+        }, 5000);
+    }
 
     function albumsRender() {
         // Generate QR code pointing to remote config page (use real IP, not localhost)
@@ -1192,6 +1136,27 @@
         .then(function(qr) { drawQR('album-qr-canvas', qr.modules); })
         .catch(function() {});
 
+        // Load configured album sources from server config
+        fetch('/api/frame/settings').then(function(r) { return r.json(); }).then(function(cfg) {
+            var serverAlbums = [];
+            var synUrls = (cfg.synology && cfg.synology.share_urls) || [];
+            for (var i = 0; i < synUrls.length; i++) {
+                serverAlbums.push({ name: synUrls[i], type: 'Synology' });
+            }
+            var gphUrls = (cfg.google_photos && cfg.google_photos.share_urls) || [];
+            for (var i = 0; i < gphUrls.length; i++) {
+                serverAlbums.push({ name: gphUrls[i], type: 'Google Photos' });
+            }
+            var immUrls = (cfg.immich && cfg.immich.share_urls) || [];
+            for (var i = 0; i < immUrls.length; i++) {
+                serverAlbums.push({ name: immUrls[i], type: 'Immich' });
+            }
+            if (serverAlbums.length > 0) albums = serverAlbums;
+            renderAlbumList();
+        }).catch(function() { renderAlbumList(); });
+    }
+
+    function renderAlbumList() {
         var listEl = document.getElementById('album-list');
         if (albums.length === 0) {
             listEl.innerHTML = '<div style="text-align:center; color:#666; padding:20px; font-size:15px;">' + t('no_albums') + '</div>';
@@ -1200,9 +1165,8 @@
             for (var i = 0; i < albums.length; i++) {
                 var a = albums[i];
                 html += '<div class="album-item">' +
-                    '<div style="flex:1;"><div class="album-name">' + esc(a.name || a.url) + '</div>' +
-                    '<div class="album-source">' + esc(a.type) + '</div></div>' +
-                    '<button class="remove-btn" onclick="removeAlbum(' + i + ')">&times;</button></div>';
+                    '<div style="flex:1;"><div class="album-name">' + esc(a.name || a.url || a.source) + '</div>' +
+                    '<div class="album-source">' + esc(a.type || a.source || '') + '</div></div></div>';
             }
             listEl.innerHTML = html;
         }

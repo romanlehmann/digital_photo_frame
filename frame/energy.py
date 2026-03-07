@@ -81,6 +81,13 @@ class SysinfoCache:
         info['h_photos'] = h_count
         info['v_photos'] = v_count
         info['photo_count'] = f"H: {h_count} / V: {v_count}"
+        # Touchscreen detection
+        try:
+            result = subprocess.run(
+                ['lsusb'], capture_output=True, text=True, timeout=5)
+            info['touchscreen'] = '27c0:0859' in result.stdout
+        except Exception:
+            info['touchscreen'] = False
         self.data = info
 
     @staticmethod
@@ -190,19 +197,7 @@ class EnergySaveManager:
         """Turn off backlight using configured method."""
         method = self.method
         if method == 'ddcci':
-            # Use brightness 0 instead of power off (d6 4).
-            # Power off kills USB ports on most monitors, disabling the touchscreen.
-            try:
-                result = subprocess.run(
-                    ['sudo', 'ddcutil', 'getvcp', '10'],
-                    capture_output=True, text=True, timeout=10)
-                for line in result.stdout.split('\n'):
-                    if 'current value' in line:
-                        self._saved_brightness = line.split('=')[1].split(',')[0].strip()
-                        break
-            except Exception:
-                pass
-            subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', '0'],
+            subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '4'],
                          capture_output=True, timeout=10)
         elif method == 'dpms':
             subprocess.run(['sudo', 'wlopm', '--off', '*'],
@@ -219,8 +214,7 @@ class EnergySaveManager:
         """Turn on backlight using configured method."""
         method = self.method
         if method == 'ddcci':
-            brightness = getattr(self, '_saved_brightness', '80')
-            subprocess.run(['sudo', 'ddcutil', 'setvcp', '10', brightness],
+            subprocess.run(['sudo', 'ddcutil', 'setvcp', 'd6', '1'],
                          capture_output=True, timeout=10)
         elif method == 'dpms':
             subprocess.run(['sudo', 'wlopm', '--on', '*'],
