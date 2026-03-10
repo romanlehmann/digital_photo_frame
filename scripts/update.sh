@@ -15,6 +15,9 @@ if ! timeout 5 ping -c1 github.com &>/dev/null; then
     exit 0
 fi
 
+# Discard local modifications (CRLF diffs from FAT32 copy, etc.)
+git reset --hard origin/main 2>/dev/null || true
+
 # Pull latest (fast-forward only to avoid merge conflicts)
 echo "Pulling latest from GitHub..."
 git pull --ff-only || { echo "git pull failed — skipping"; exit 0; }
