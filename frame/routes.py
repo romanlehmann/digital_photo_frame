@@ -11,7 +11,8 @@ from urllib.parse import urlparse, parse_qs
 
 import yaml
 
-from frame.clients import SynologyPhotosClient, GooglePhotosClient, ImmichClient
+from frame.clients import (SynologyPhotosClient, GooglePhotosClient, ImmichClient,
+                            ICloudSharedAlbumClient, NextcloudClient)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_google_photos_config()
         elif path == '/api/immich':
             self.serve_immich_config()
+        elif path == '/api/icloud':
+            self.serve_icloud_config()
+        elif path == '/api/nextcloud':
+            self.serve_nextcloud_config()
         elif path == '/api/album_names':
             self.serve_album_names()
         elif path == '/api/frame/settings':
@@ -113,6 +118,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_google_photos_config()
         elif self.path == '/api/immich':
             self.handle_save_immich_config()
+        elif self.path == '/api/icloud':
+            self.handle_save_icloud_config()
+        elif self.path == '/api/nextcloud':
+            self.handle_save_nextcloud_config()
         elif self.path == '/api/wifi/scan':
             self.handle_wifi_scan()
         elif self.path == '/api/wifi/connect':
@@ -306,6 +315,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             'synology': {'share_urls': cfg.get('synology', {}).get('share_urls', [])},
             'google_photos': {'share_urls': cfg.get('google_photos', {}).get('share_urls', [])},
             'immich': {'share_urls': cfg.get('immich', {}).get('share_urls', [])},
+            'icloud': {'share_urls': cfg.get('icloud', {}).get('share_urls', [])},
+            'nextcloud': {'share_urls': cfg.get('nextcloud', {}).get('share_urls', [])},
             'sleep_method': cfg.get('energy_save', {}).get('method', 'ddcci'),
         }
         self._json_response(data)
@@ -344,60 +355,128 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         }
         self._json_response(data)
 
+    def serve_icloud_config(self):
+        """Serve iCloud share URLs as JSON."""
+        icloud = (self.app.config or {}).get('icloud', {})
+        data = {'share_urls': icloud.get('share_urls', [])}
+        self._json_response(data)
+
+    def serve_nextcloud_config(self):
+        """Serve Nextcloud share URLs and passphrases as JSON."""
+        nextcloud = (self.app.config or {}).get('nextcloud', {})
+        data = {
+            'share_urls': nextcloud.get('share_urls', []),
+            'share_passphrases': nextcloud.get('share_passphrases', []),
+        }
+        self._json_response(data)
+
     def serve_album_names(self):
-        """Resolve and return album names for all configured URLs."""
+        """Return album names — cached instantly, refresh in background.
+
+        First call returns cached names immediately and triggers background
+        resolution. The client can poll again to pick up updated names.
+        """
+        import threading
+
         synology = (self.app.config or {}).get('synology', {})
         google = (self.app.config or {}).get('google_photos', {})
         immich = (self.app.config or {}).get('immich', {})
+        icloud = (self.app.config or {}).get('icloud', {})
+        nextcloud = (self.app.config or {}).get('nextcloud', {})
 
         syn_urls = synology.get('share_urls', [])
-        syn_passes = synology.get('share_passphrases', [])
+        syn_passes = list(synology.get('share_passphrases', []))
         gph_urls = google.get('share_urls', [])
         imm_urls = immich.get('share_urls', [])
-        imm_passes = immich.get('share_passphrases', [])
-
-        result = {'synology': {}, 'google': {}, 'immich': {}}
-        cache = self.app.album_name_cache
-
-        # Resolve Synology album names
-        for url, pw in zip(syn_urls, syn_passes):
-            if not url:
-                continue
-            if url in cache:
-                result['synology'][url] = cache[url]
-            else:
-                name = SynologyPhotosClient.resolve_album_name(url, pw)
-                if name:
-                    cache[url] = name
-                    result['synology'][url] = name
-
-        # Resolve Google Photos album names
-        for url in gph_urls:
-            if not url:
-                continue
-            if url in cache:
-                result['google'][url] = cache[url]
-            else:
-                name = GooglePhotosClient.resolve_album_name(url)
-                if name:
-                    cache[url] = name
-                    result['google'][url] = name
-
-        # Resolve Immich album names
+        imm_passes = list(immich.get('share_passphrases', []))
+        icl_urls = icloud.get('share_urls', [])
+        nc_urls = nextcloud.get('share_urls', [])
+        nc_passes = list(nextcloud.get('share_passphrases', []))
+        while len(syn_passes) < len(syn_urls):
+            syn_passes.append('')
         while len(imm_passes) < len(imm_urls):
             imm_passes.append('')
-        for url, pw in zip(imm_urls, imm_passes):
-            if not url:
-                continue
-            if url in cache:
-                result['immich'][url] = cache[url]
-            else:
-                name = ImmichClient.resolve_album_name(url, pw)
-                if name:
-                    cache[url] = name
-                    result['immich'][url] = name
+        while len(nc_passes) < len(nc_urls):
+            nc_passes.append('')
 
+        cache = self.app.album_name_cache
+
+        def _fallback_name(source, index):
+            labels = {'synology': 'Synology', 'google': 'Google', 'immich': 'Immich',
+                      'icloud': 'iCloud', 'nextcloud': 'Nextcloud'}
+            return f'{labels.get(source, source)} Album {index + 1} (nicht erreichbar)'
+
+        # Build result from cache immediately
+        url_map = {
+            'synology': [(url, i) for i, url in enumerate(syn_urls) if url],
+            'google': [(url, i) for i, url in enumerate(gph_urls) if url],
+            'immich': [(url, i) for i, url in enumerate(imm_urls) if url],
+            'icloud': [(url, i) for i, url in enumerate(icl_urls) if url],
+            'nextcloud': [(url, i) for i, url in enumerate(nc_urls) if url],
+        }
+
+        result = {'synology': {}, 'google': {}, 'immich': {}, 'icloud': {}, 'nextcloud': {}}
+        uncached = []  # (source, url, index, passphrase)
+
+        for source, entries in url_map.items():
+            for url, idx in entries:
+                if url in cache:
+                    result[source][url] = cache[url]
+                else:
+                    result[source][url] = _fallback_name(source, idx)
+                    # Collect for background resolution
+                    pw = ''
+                    if source == 'synology':
+                        pw = syn_passes[idx] if idx < len(syn_passes) else ''
+                    elif source == 'immich':
+                        pw = imm_passes[idx] if idx < len(imm_passes) else ''
+                    elif source == 'nextcloud':
+                        pw = nc_passes[idx] if idx < len(nc_passes) else ''
+                    uncached.append((source, url, idx, pw))
+
+        # Return cached result immediately
         self._json_response(result)
+
+        # Resolve ALL names in background (updates cache for next request)
+        def _bg_resolve():
+            changed = False
+            all_entries = []
+            for source, entries in url_map.items():
+                for url, idx in entries:
+                    pw = ''
+                    if source == 'synology':
+                        pw = syn_passes[idx] if idx < len(syn_passes) else ''
+                    elif source == 'immich':
+                        pw = imm_passes[idx] if idx < len(imm_passes) else ''
+                    elif source == 'nextcloud':
+                        pw = nc_passes[idx] if idx < len(nc_passes) else ''
+                    all_entries.append((source, url, idx, pw))
+
+            for source, url, idx, pw in all_entries:
+                try:
+                    if source == 'synology':
+                        name = SynologyPhotosClient.resolve_album_name(url, pw)
+                    elif source == 'google':
+                        name = GooglePhotosClient.resolve_album_name(url)
+                    elif source == 'immich':
+                        name = ImmichClient.resolve_album_name(url, pw)
+                    elif source == 'icloud':
+                        name = ICloudSharedAlbumClient.resolve_album_name(url)
+                    elif source == 'nextcloud':
+                        name = NextcloudClient.resolve_album_name(url, pw)
+                    else:
+                        continue
+
+                    if name and cache.get(url) != name:
+                        cache[url] = name
+                        changed = True
+                except Exception as e:
+                    logger.debug(f"Failed to resolve {source} album name: {e}")
+
+            if changed:
+                self.app.save_album_cache()
+
+        threading.Thread(target=_bg_resolve, daemon=True).start()
 
     def serve_qrcode(self, parsed_path):
         """Generate QR code modules as JSON for client-side canvas rendering."""
@@ -710,6 +789,58 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             logger.info(f"Immich config saved: {len(urls)} album(s)")
         except Exception as e:
             logger.error(f"Error saving Immich config: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_save_icloud_config(self):
+        """Save iCloud share URLs to config."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            urls = data.get('share_urls', [])
+            if not isinstance(urls, list):
+                raise ValueError('share_urls must be a list')
+
+            self.app.config.setdefault('icloud', {})
+            self.app.config['icloud']['share_urls'] = urls
+            self.app.save_config()
+
+            if self.app.syncer is None and any(urls):
+                from frame.sync import PhotoSyncer
+                self.app.syncer = PhotoSyncer(self.app.config)
+
+            self._json_response({'ok': True})
+            logger.info(f"iCloud config saved: {len(urls)} album(s)")
+        except Exception as e:
+            logger.error(f"Error saving iCloud config: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_save_nextcloud_config(self):
+        """Save Nextcloud share URLs and passphrases to config."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            urls = data.get('share_urls', [])
+            passphrases = data.get('share_passphrases', [])
+            if not isinstance(urls, list) or not isinstance(passphrases, list):
+                raise ValueError('share_urls and share_passphrases must be lists')
+            if len(urls) != len(passphrases):
+                raise ValueError('share_urls and share_passphrases must have the same length')
+
+            self.app.config.setdefault('nextcloud', {})
+            self.app.config['nextcloud']['share_urls'] = urls
+            self.app.config['nextcloud']['share_passphrases'] = passphrases
+            self.app.save_config()
+
+            if self.app.syncer is None and any(urls):
+                from frame.sync import PhotoSyncer
+                self.app.syncer = PhotoSyncer(self.app.config)
+
+            self._json_response({'ok': True})
+            logger.info(f"Nextcloud config saved: {len(urls)} album(s)")
+        except Exception as e:
+            logger.error(f"Error saving Nextcloud config: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_wifi_scan(self):

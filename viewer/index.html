@@ -846,6 +846,7 @@
         <h1>Scan to Configure</h1>
         <canvas id="qr-canvas"></canvas>
         <div id="qr-url"></div>
+        <div id="qr-tailscale-url" style="color:#aaa;font-size:13px;margin-top:4px;display:none"></div>
         <button class="settings-btn close-btn" onclick="closeFolderSync()">Close</button>
     </div>
     <div id="sync-progress-bar"></div>
@@ -1074,6 +1075,7 @@
         let previousImage = null;
         let intervalId = null;
         let photoHistory = [];  // stack of previously shown indices
+        let lastPhotoCount = 0; // track photo list changes
 
         // --- Clock overlay ---
         let showClock = false;
@@ -1359,37 +1361,51 @@
             } catch (e) {}
         }
 
+        function renderAlbumList(data) {
+            const listEl = document.getElementById('album-list');
+            const albums = [];
+            for (const [src, map] of Object.entries(data)) {
+                for (const [url, name] of Object.entries(map)) {
+                    albums.push({ source: src, name: name });
+                }
+            }
+            var srcOrder = {synology: 0, google: 1, immich: 2, icloud: 3, nextcloud: 4};
+            albums.sort((a, b) => (srcOrder[a.source] || 0) - (srcOrder[b.source] || 0) || a.name.localeCompare(b.name));
+            if (albums.length === 0) {
+                listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('no_albums') + '</div>';
+                return;
+            }
+            listEl.innerHTML = '';
+            albums.forEach(a => {
+                const item = document.createElement('div');
+                item.className = 'album-item';
+                const src = document.createElement('span');
+                src.className = 'album-source';
+                src.textContent = a.source;
+                const name = document.createElement('span');
+                name.className = 'album-name';
+                name.textContent = a.name;
+                item.appendChild(src);
+                item.appendChild(name);
+                listEl.appendChild(item);
+            });
+        }
+
         async function loadAlbums() {
             const listEl = document.getElementById('album-list');
             listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('loading_albums') + '</div>';
             try {
                 const resp = await fetch('/api/album_names');
                 const data = await resp.json();
-                const albums = [];
-                for (const [src, map] of Object.entries(data)) {
-                    for (const [url, name] of Object.entries(map)) {
-                        albums.push({ source: src, name: name });
-                    }
-                }
-                albums.sort((a, b) => a.name.localeCompare(b.name));
-                if (albums.length === 0) {
-                    listEl.innerHTML = '<div style="color:#888;font-size:18px">' + t('no_albums') + '</div>';
-                    return;
-                }
-                listEl.innerHTML = '';
-                albums.forEach(a => {
-                    const item = document.createElement('div');
-                    item.className = 'album-item';
-                    const src = document.createElement('span');
-                    src.className = 'album-source';
-                    src.textContent = a.source;
-                    const name = document.createElement('span');
-                    name.className = 'album-name';
-                    name.textContent = a.name;
-                    item.appendChild(src);
-                    item.appendChild(name);
-                    listEl.appendChild(item);
-                });
+                renderAlbumList(data);
+                // Re-fetch after background resolution to pick up fresh names
+                setTimeout(async function() {
+                    try {
+                        const resp2 = await fetch('/api/album_names');
+                        const data2 = await resp2.json();
+                        renderAlbumList(data2);
+                    } catch (e) {}
+                }, 5000);
             } catch (e) {
                 listEl.innerHTML = '<div style="color:#f66;font-size:18px">Error loading albums</div>';
             }
@@ -1477,7 +1493,7 @@
                             bar.classList.remove('active', 'done');
                             bar.style.width = '0%';
                         }, 3000);
-                        init();
+                        refreshPhotoList();
                     }
                 }
                 document.getElementById('info-sync').textContent = syncText;
@@ -1752,6 +1768,7 @@
                     const j = Math.floor(Math.random() * (i + 1));
                     [photos[i], photos[j]] = [photos[j], photos[i]];
                 }
+                lastPhotoCount = photos.length;
 
                 document.getElementById('loading').style.display = 'none';
                 startSlideshow();
@@ -1843,6 +1860,29 @@
 
             // Then show next photos at interval
             intervalId = setInterval(showNextPhoto, config.interval);
+
+            // Periodically check for photo list changes (e.g. after sync)
+            setInterval(refreshPhotoList, 60000);
+        }
+
+        async function refreshPhotoList() {
+            try {
+                const resp = await fetch('/list');
+                if (!resp.ok) return;
+                const newPhotos = await resp.json();
+                if (newPhotos.length === lastPhotoCount) return;
+
+                // Photo list changed — update and reshuffle
+                lastPhotoCount = newPhotos.length;
+                photos = newPhotos;
+                for (let i = photos.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [photos[i], photos[j]] = [photos[j], photos[i]];
+                }
+                currentIndex = 0;
+                photoHistory = [];
+                console.log('Photo list updated:', photos.length, 'photos');
+            } catch (e) {}
         }
 
         // Handle keyboard shortcuts
@@ -1997,16 +2037,22 @@
             // Get the local IP from the sysinfo already displayed
             var ipText = document.getElementById('info-ip').textContent || '';
             var ip = ipText.split(',')[0].trim();
+            var tsIp = (document.getElementById('info-tailscale').textContent || '').trim();
             if (!ip || ip === '--') {
-                // Fallback to Tailscale IP
-                ip = (document.getElementById('info-tailscale').textContent || '').trim();
+                ip = tsIp || location.hostname;
             }
-            if (!ip || ip === '--') {
-                ip = location.hostname;
-            }
-            var url = 'http://' + ip + ':' + location.port + '/remote';
+            var port = location.port || '8080';
+            var url = 'http://' + ip + ':' + port + '/remote';
             document.getElementById('qr-url').textContent = url;
             generateQR(url, document.getElementById('qr-canvas'), 8);
+            // Show Tailscale URL if connected and different from main IP
+            var tsEl = document.getElementById('qr-tailscale-url');
+            if (tsIp && tsIp !== '--' && tsIp !== ip) {
+                tsEl.textContent = 'Tailscale: http://' + tsIp + ':' + port + '/remote';
+                tsEl.style.display = '';
+            } else {
+                tsEl.style.display = 'none';
+            }
             document.getElementById('qr-overlay').classList.add('visible');
         }
 

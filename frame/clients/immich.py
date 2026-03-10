@@ -53,25 +53,43 @@ class ImmichClient:
             return self.session.request(method, url, timeout=30, **kwargs)
 
     def initialize_share(self) -> bool:
-        """Authenticate to the shared link (login if password-protected)."""
+        """Authenticate to the shared link (login if password-protected).
+
+        Supports both Immich v2.6+ (POST /shared-links/login) and
+        v2.5.x (password as query param on GET /shared-links/me).
+        """
         try:
             if self.passphrase:
+                # Try v2.6+ login endpoint first
                 resp = self._api(
                     'POST',
                     f'/api/shared-links/login?key={self.key}',
                     json={'password': self.passphrase},
                 )
+                if resp.status_code == 404:
+                    # Fallback for v2.5.x: password as query param
+                    logger.info("Immich POST login not found, trying query param fallback")
+                    resp = self._api(
+                        'GET',
+                        f'/api/shared-links/me?key={self.key}&password={self.passphrase}',
+                    )
                 if resp.status_code not in (200, 201):
                     logger.error(f"Immich login failed ({resp.status_code}): {resp.text[:200]}")
                     return False
+                # v2.6+ login returns the shared link data with a cookie
+                data = resp.json()
+                # Store cookie token if present (v2.6+)
+                token = resp.cookies.get('immich_shared_link_token')
+                if token:
+                    self.session.cookies.set('immich_shared_link_token', token)
+            else:
+                # No password — just fetch the shared link info
+                resp = self._api('GET', f'/api/shared-links/me?key={self.key}')
+                if resp.status_code != 200:
+                    logger.error(f"Immich shared link access failed ({resp.status_code}): {resp.text[:200]}")
+                    return False
+                data = resp.json()
 
-            # Verify access by fetching the shared link info
-            resp = self._api('GET', f'/api/shared-links/me?key={self.key}')
-            if resp.status_code != 200:
-                logger.error(f"Immich shared link access failed ({resp.status_code}): {resp.text[:200]}")
-                return False
-
-            data = resp.json()
             album = data.get('album') or {}
             self._album_name = album.get('albumName', '')
             logger.info(f"Immich share initialized: album={self._album_name!r}, "

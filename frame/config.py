@@ -1,5 +1,6 @@
 """Application state and configuration management."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -23,6 +24,8 @@ class AppState:
         self.sysinfo_cache = None
         self.wifi_manager = None
         self.album_name_cache = {}  # url -> resolved album name
+        self._album_cache_path = Path(self.config_path).parent / '.album_names.json'
+        self._load_album_cache()
         self.wizard_mode = False
 
     def load_config(self) -> dict:
@@ -35,14 +38,33 @@ class AppState:
         with open(self.config_path, 'w') as f:
             yaml.dump(self.config, f, default_flow_style=False)
 
+    def _load_album_cache(self):
+        """Load persisted album name cache from disk."""
+        try:
+            if self._album_cache_path.exists():
+                with open(self._album_cache_path) as f:
+                    self.album_name_cache = json.load(f)
+                logger.debug(f"Loaded {len(self.album_name_cache)} cached album names")
+        except Exception as e:
+            logger.warning(f"Failed to load album name cache: {e}")
+            self.album_name_cache = {}
+
+    def save_album_cache(self):
+        """Persist album name cache to disk."""
+        try:
+            with open(self._album_cache_path, 'w') as f:
+                json.dump(self.album_name_cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save album name cache: {e}")
+
     def has_album_sources(self) -> bool:
         """Check if any real photo album sources are configured."""
         def has_real_urls(urls):
             return any(u for u in urls if u and 'REPLACE_ME' not in u and 'example.com' not in u)
-        has_synology = has_real_urls(self.config.get('synology', {}).get('share_urls', []))
-        has_google = has_real_urls(self.config.get('google_photos', {}).get('share_urls', []))
-        has_immich = has_real_urls(self.config.get('immich', {}).get('share_urls', []))
-        return has_synology or has_google or has_immich
+        for key in ('synology', 'google_photos', 'immich', 'icloud', 'nextcloud'):
+            if has_real_urls(self.config.get(key, {}).get('share_urls', [])):
+                return True
+        return False
 
     def init_syncer(self):
         """Initialize the photo syncer if sources are configured (no auto-sync)."""

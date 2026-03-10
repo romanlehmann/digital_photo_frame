@@ -10,7 +10,8 @@ from typing import Dict, Any
 
 import yaml
 
-from frame.clients import SynologyPhotosClient, GooglePhotosClient, ImmichClient
+from frame.clients import (SynologyPhotosClient, GooglePhotosClient, ImmichClient,
+                            ICloudSharedAlbumClient, NextcloudClient)
 from frame.database import PhotoDatabase
 from frame.processing import process_photo_in_subprocess
 
@@ -113,6 +114,8 @@ class PhotoSyncer:
 
         google_config = self._config.get('google_photos', {})
         immich_config = self._config.get('immich', {})
+        icloud_config = self._config.get('icloud', {})
+        nextcloud_config = self._config.get('nextcloud', {})
 
         try:
             # --- Phase 1: Connect to albums and list all photos ---
@@ -133,14 +136,27 @@ class PhotoSyncer:
                 imm_passes.append('')
             imm_albums = [(url, pw) for url, pw in zip(imm_urls, imm_passes) if url]
 
-            if not syn_albums and not gph_urls and not imm_albums:
-                raise ValueError("No share URLs configured (Synology, Google, or Immich)")
+            icl_urls = [u for u in icloud_config.get('share_urls', []) if u]
+
+            nc_urls = nextcloud_config.get('share_urls', [])
+            nc_passes = nextcloud_config.get('share_passphrases', [])
+            while len(nc_passes) < len(nc_urls):
+                nc_passes.append('')
+            nc_albums = [(url, pw) for url, pw in zip(nc_urls, nc_passes) if url]
+
+            if not syn_albums and not gph_urls and not imm_albums and not icl_urls and not nc_albums:
+                logger.info("No share URLs configured — restoring defaults")
+                self._restore_defaults(base_dir)
+                self._set_phase('idle')
+                return
 
             all_items = []
             item_client_map = {}  # item_id -> (client_type, client_index)
             syn_clients = []
             gph_clients = []
             imm_clients = []
+            icl_clients = []
+            nc_clients = []
 
             # -- Synology albums --
             for album_idx, (share_url, passphrase) in enumerate(syn_albums):
@@ -210,8 +226,63 @@ class PhotoSyncer:
                 except Exception as e:
                     logger.error(f"Failed to fetch Immich album {imm_idx + 1}: {e}")
 
+            # -- iCloud albums --
+            for icl_idx, icl_url in enumerate(icl_urls):
+                if self._stop_event.is_set():
+                    logger.info("Sync stopped by request")
+                    return
+
+                logger.info(f"iCloud album {icl_idx + 1}/{len(icl_urls)}...")
+                try:
+                    client = ICloudSharedAlbumClient(share_url=icl_url)
+                    if not client.initialize_share():
+                        logger.error(f"Failed to initialize iCloud album {icl_idx + 1}, skipping")
+                        continue
+
+                    items = client.get_all_items()
+                    logger.info(f"iCloud album {icl_idx + 1}: {len(items)} photos")
+
+                    for item in items:
+                        item_client_map[item['id']] = ('icloud', len(icl_clients))
+                    all_items.extend(items)
+                    icl_clients.append(client)
+                except Exception as e:
+                    logger.error(f"Failed to fetch iCloud album {icl_idx + 1}: {e}")
+
+            # -- Nextcloud albums --
+            for nc_idx, (nc_url, nc_pass) in enumerate(nc_albums):
+                if self._stop_event.is_set():
+                    logger.info("Sync stopped by request")
+                    return
+
+                logger.info(f"Nextcloud album {nc_idx + 1}/{len(nc_albums)}...")
+                try:
+                    client = NextcloudClient(share_url=nc_url, passphrase=nc_pass)
+                    if not client.initialize_share():
+                        logger.error(f"Failed to initialize Nextcloud album {nc_idx + 1}, skipping")
+                        continue
+
+                    items = client.get_all_items()
+                    logger.info(f"Nextcloud album {nc_idx + 1}: {len(items)} photos")
+
+                    for item in items:
+                        item_client_map[item['id']] = ('nextcloud', len(nc_clients))
+                    all_items.extend(items)
+                    nc_clients.append(client)
+                except Exception as e:
+                    logger.error(f"Failed to fetch Nextcloud album {nc_idx + 1}: {e}")
+
             if not all_items:
-                raise ValueError("No photos found in any album")
+                logger.info("No photos found in any album — restoring defaults")
+                # Clean all real photos, restore defaults
+                for orient in ('horizontal', 'vertical'):
+                    orient_dir = base_dir / orient
+                    for f in orient_dir.glob('*.jpg'):
+                        if not f.name.startswith('default_'):
+                            f.unlink(missing_ok=True)
+                self._restore_defaults(base_dir)
+                self._set_phase('idle')
+                return
 
             logger.info(f"Total photos across all albums: {len(all_items)}")
 
@@ -251,11 +322,17 @@ class PhotoSyncer:
 
             self._progress = {'total': len(all_items), 'pending': total, 'downloaded': 0}
 
-            # Build download_url lookup for Google items
-            gph_download_urls = {}
+            # Build download_url lookup for Google/iCloud items
+            download_urls = {}
             for ai in all_items:
                 if '_download_url' in ai:
-                    gph_download_urls[ai['id']] = ai['_download_url']
+                    download_urls[ai['id']] = ai['_download_url']
+
+            # Build webdav_path lookup for Nextcloud items
+            nc_webdav_paths = {}
+            for ai in all_items:
+                if '_webdav_path' in ai:
+                    nc_webdav_paths[ai['id']] = ai['_webdav_path']
 
             for idx, item in enumerate(unprocessed):
                 if self._stop_event.is_set():
@@ -275,14 +352,25 @@ class PhotoSyncer:
                 client_type, client_idx = client_info
 
                 # Download using the appropriate client
-                if client_type == 'google':
-                    download_url = gph_download_urls.get(item_id)
+                if client_type in ('google', 'icloud'):
+                    download_url = download_urls.get(item_id)
                     if not download_url:
-                        logger.warning(f"Skipping Google item {item_id}: no download URL")
+                        logger.warning(f"Skipping {client_type} item {item_id}: no download URL")
                         db.mark_failed(item_id)
                         continue
-                    client = gph_clients[client_idx]
+                    if client_type == 'google':
+                        client = gph_clients[client_idx]
+                    else:
+                        client = icl_clients[client_idx]
                     ok = client.download_item(download_url, download_path)
+                elif client_type == 'nextcloud':
+                    webdav_path = nc_webdav_paths.get(item_id)
+                    if not webdav_path:
+                        logger.warning(f"Skipping Nextcloud item {item_id}: no webdav path")
+                        db.mark_failed(item_id)
+                        continue
+                    client = nc_clients[client_idx]
+                    ok = client.download_item(webdav_path, download_path)
                 elif client_type == 'immich':
                     client = imm_clients[client_idx]
                     asset_uuid = item_id.replace('imm_', '')
@@ -343,9 +431,11 @@ class PhotoSyncer:
             logger.info(f"Sync done: {processed}/{total} new photos in {elapsed:.1f}s")
 
             # Remove default placeholder photos once real photos exist
-            if processed > 0:
-                for orient in ('horizontal', 'vertical'):
-                    orient_dir = base_dir / orient
+            for orient in ('horizontal', 'vertical'):
+                orient_dir = base_dir / orient
+                real_photos = [f for f in orient_dir.glob('*.jpg')
+                               if not f.name.startswith('default_')]
+                if real_photos:
                     for default_file in orient_dir.glob('default_*.jpg'):
                         default_file.unlink(missing_ok=True)
                         logger.info(f"Removed default placeholder: {default_file.name}")
@@ -363,6 +453,40 @@ class PhotoSyncer:
             db.close()
             with self._lock:
                 self._running = False
+
+    def _restore_defaults(self, base_dir: Path):
+        """Restore default placeholder photos if no real photos exist."""
+        # Find defaults source — check relative to this file's package
+        defaults_dir = Path(__file__).resolve().parent.parent / 'viewer' / 'defaults'
+        if not defaults_dir.exists():
+            logger.warning(f"Defaults directory not found: {defaults_dir}")
+            return
+
+        for orient in ('horizontal', 'vertical'):
+            orient_dir = base_dir / orient
+            orient_dir.mkdir(parents=True, exist_ok=True)
+
+            # Count non-default photos
+            real_photos = [f for f in orient_dir.glob('*.jpg')
+                           if not f.name.startswith('default_')]
+            if real_photos:
+                continue  # Has real photos, skip
+
+            # Check if defaults already present
+            existing_defaults = list(orient_dir.glob('default_*.jpg'))
+            if existing_defaults:
+                continue
+
+            # Copy defaults
+            src_dir = defaults_dir / orient
+            if not src_dir.exists():
+                continue
+            count = 0
+            for src_file in src_dir.glob('*.jpg'):
+                shutil.copy2(src_file, orient_dir / src_file.name)
+                count += 1
+            if count:
+                logger.info(f"Restored {count} default photos to {orient}/")
 
     def _set_phase(self, phase: str):
         with self._lock:
