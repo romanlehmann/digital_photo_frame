@@ -67,7 +67,6 @@ class AppState:
         return False
 
     def init_syncer(self):
-        """Initialize the photo syncer if sources are configured (no auto-sync)."""
-        if self.has_album_sources():
-            from frame.sync import PhotoSyncer
-            self.syncer = PhotoSyncer(self.config)
+        """Initialize the photo syncer (always, so cleanup works even with no albums)."""
+        from frame.sync import PhotoSyncer
+        self.syncer = PhotoSyncer(self.config)

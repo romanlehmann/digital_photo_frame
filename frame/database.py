@@ -178,6 +178,12 @@ class PhotoDatabase:
         ''', (item_id,))
         self.conn.commit()
 
+    def clear_all(self):
+        """Remove all entries from the photos table."""
+        self.conn.execute('DELETE FROM photos')
+        self.conn.commit()
+        logger.info("Cleared all entries from database")
+
     def cleanup_orientation(self, orientation: str, keep_count: int, base_dir: Path):
         """Delete processed files for an orientation beyond keep_count, clear DB refs.
 

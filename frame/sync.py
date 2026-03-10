@@ -145,7 +145,13 @@ class PhotoSyncer:
             nc_albums = [(url, pw) for url, pw in zip(nc_urls, nc_passes) if url]
 
             if not syn_albums and not gph_urls and not imm_albums and not icl_urls and not nc_albums:
-                logger.info("No share URLs configured — restoring defaults")
+                logger.info("No share URLs configured — cleaning photos, restoring defaults")
+                for orient in ('horizontal', 'vertical'):
+                    orient_dir = base_dir / orient
+                    for f in orient_dir.glob('*.jpg'):
+                        if not f.name.startswith('default_'):
+                            f.unlink(missing_ok=True)
+                db.clear_all()
                 self._restore_defaults(base_dir)
                 self._set_phase('idle')
                 return
