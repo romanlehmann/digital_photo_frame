@@ -42,15 +42,20 @@ class ImmichClient:
                 return parts[idx + 1]
         raise ValueError(f"Could not extract share key from: {url}")
 
-    def _api(self, method: str, path: str, **kwargs) -> requests.Response:
+    def _api(self, method: str, path: str, params: dict = None, **kwargs) -> requests.Response:
         """Make an API request, retrying with verify=False on SSL errors."""
         url = f"{self.base_url}{path}"
+        # Always pass key as a proper query param (avoids encoding issues)
+        if params is None:
+            params = {}
+        if 'key' not in params:
+            params['key'] = self.key
         try:
-            return self.session.request(method, url, timeout=30, **kwargs)
+            return self.session.request(method, url, params=params, timeout=30, **kwargs)
         except requests.exceptions.SSLError:
             logger.warning("Immich SSL error, retrying with verify=False")
             self.session.verify = False
-            return self.session.request(method, url, timeout=30, **kwargs)
+            return self.session.request(method, url, params=params, timeout=30, **kwargs)
 
     def initialize_share(self) -> bool:
         """Authenticate to the shared link (login if password-protected).
@@ -59,36 +64,28 @@ class ImmichClient:
         v2.5.x (password as query param on GET /shared-links/me).
         """
         try:
+            params = {}
             if self.passphrase:
-                # Try v2.6+ login endpoint first
-                resp = self._api(
-                    'POST',
-                    f'/api/shared-links/login?key={self.key}',
-                    json={'password': self.passphrase},
-                )
-                if resp.status_code == 404:
-                    # Fallback for v2.5.x: password as query param
-                    logger.info("Immich POST login not found, trying query param fallback")
-                    resp = self._api(
-                        'GET',
-                        f'/api/shared-links/me?key={self.key}&password={self.passphrase}',
-                    )
-                if resp.status_code not in (200, 201):
-                    logger.error(f"Immich login failed ({resp.status_code}): {resp.text[:200]}")
-                    return False
-                # v2.6+ login returns the shared link data with a cookie
-                data = resp.json()
-                # Store cookie token if present (v2.6+)
-                token = resp.cookies.get('immich_shared_link_token')
-                if token:
-                    self.session.cookies.set('immich_shared_link_token', token)
-            else:
-                # No password — just fetch the shared link info
-                resp = self._api('GET', f'/api/shared-links/me?key={self.key}')
-                if resp.status_code != 200:
-                    logger.error(f"Immich shared link access failed ({resp.status_code}): {resp.text[:200]}")
-                    return False
-                data = resp.json()
+                params['password'] = self.passphrase
+
+            # Try GET /api/shared-links/me (works on v2.5+)
+            resp = self._api('GET', '/api/shared-links/me', params=params)
+
+            if resp.status_code == 401 and self.passphrase:
+                # Try v2.6+ POST login endpoint
+                resp = self._api('POST', '/api/shared-links/login',
+                                 json={'password': self.passphrase})
+                if resp.status_code in (200, 201):
+                    token = resp.cookies.get('immich_shared_link_token')
+                    if token:
+                        self.session.cookies.set('immich_shared_link_token', token)
+                    # Re-fetch shared link info
+                    resp = self._api('GET', '/api/shared-links/me')
+
+            if resp.status_code != 200:
+                logger.error(f"Immich login failed ({resp.status_code}): {resp.text[:200]}")
+                return False
+            data = resp.json()
 
             album = data.get('album') or {}
             self._album_name = album.get('albumName', '')
@@ -101,12 +98,28 @@ class ImmichClient:
 
     def get_all_items(self) -> List[Dict[str, Any]]:
         """List all photo assets from the shared link."""
-        resp = self._api('GET', f'/api/shared-links/me?key={self.key}')
+        params = {}
+        if self.passphrase:
+            params['password'] = self.passphrase
+        resp = self._api('GET', '/api/shared-links/me', params=params)
         resp.raise_for_status()
         data = resp.json()
 
+        assets = data.get('assets', [])
+
+        # v2.5: shared-links/me may return empty assets for ALBUM type;
+        # fetch album directly to get the actual asset list
+        if not assets and data.get('type') == 'ALBUM':
+            album = data.get('album', {})
+            album_id = album.get('id', '')
+            if album_id:
+                logger.info(f"Immich: fetching album {album_id} for asset list")
+                resp2 = self._api('GET', f'/api/albums/{album_id}', params=params)
+                if resp2.status_code == 200:
+                    assets = resp2.json().get('assets', [])
+
         items = []
-        for asset in data.get('assets', []):
+        for asset in assets:
             if asset.get('type', '').upper() == 'VIDEO':
                 continue
             asset_id = asset.get('id', '')
@@ -140,7 +153,7 @@ class ImmichClient:
         try:
             resp = self._api(
                 'GET',
-                f'/api/assets/{asset_id}/original?key={self.key}',
+                f'/api/assets/{asset_id}/original',
                 stream=True,
             )
             resp.raise_for_status()
