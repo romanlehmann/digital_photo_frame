@@ -44,7 +44,14 @@ class GooglePhotosClient:
             logger.warning("AF_initDataCallback parsing found no photos, trying regex fallback")
             items = self._regex_fallback(html)
 
-        logger.info(f"Google Photos: found {len(items)} images in shared album")
+        if len(items) >= 500:
+            logger.warning(
+                f"Google Photos: found {len(items)} images — album may contain more. "
+                "Google only embeds ~500 photos per page. Split into smaller albums "
+                "and add each link separately to get all photos."
+            )
+        else:
+            logger.info(f"Google Photos: found {len(items)} images in shared album")
         return items
 
     def _parse_af_data(self, html: str) -> List[Dict[str, Any]]:
