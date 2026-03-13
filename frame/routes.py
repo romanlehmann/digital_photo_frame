@@ -402,9 +402,9 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         cache = self.app.album_name_cache
 
         def _fallback_name(source, index):
-            labels = {'synology': 'Synology', 'google': 'Google', 'immich': 'Immich',
-                      'icloud': 'iCloud', 'nextcloud': 'Nextcloud'}
-            return f'{labels.get(source, source)} Album {index + 1} (nicht erreichbar)'
+            labels = {'synology': 'Synology', 'google': 'Google Photos',
+                      'immich': 'Immich', 'icloud': 'iCloud', 'nextcloud': 'Nextcloud'}
+            return f'{labels.get(source, source)} Album {index + 1}'
 
         # Build result from cache immediately
         url_map = {
@@ -467,6 +467,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                     else:
                         continue
 
+                    # Only cache real names, not empty results
                     if name and cache.get(url) != name:
                         cache[url] = name
                         changed = True

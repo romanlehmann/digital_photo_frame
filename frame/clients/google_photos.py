@@ -1,6 +1,11 @@
-"""Google Photos client for public shared albums (no OAuth)."""
+"""Google Photos client for public shared albums (no OAuth).
+
+Parses the AF_initDataCallback JS data embedded in Google Photos shared
+album pages to extract all photo URLs (up to ~500 per album).
+"""
 
 import re
+import json
 import hashlib
 import logging
 from pathlib import Path
@@ -12,12 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class GooglePhotosClient:
-    """Client for Google Photos shared albums via public share links.
-
-    Fetches the shared album HTML page, extracts lh3.googleusercontent.com
-    image URLs from embedded JS/HTML, and downloads full-resolution images
-    by appending =w0 to the base URL.
-    """
+    """Client for Google Photos shared albums via public share links."""
 
     def __init__(self, share_url: str):
         self.share_url = share_url
@@ -27,24 +27,82 @@ class GooglePhotosClient:
         })
 
     def get_all_items(self) -> List[Dict[str, Any]]:
-        """Fetch the shared album page and extract image URLs."""
+        """Fetch the shared album page and extract image URLs.
+
+        Parses the AF_initDataCallback data structure which contains
+        all photo entries as nested JS arrays.
+        """
         resp = self.session.get(self.share_url, timeout=30)
         resp.raise_for_status()
+        html = resp.text
 
-        # Extract lh3 image URLs from the page (embedded in JS data)
-        pattern = r'https://lh3\.googleusercontent\.com/[a-zA-Z0-9_\-]+'
-        raw_urls = list(set(re.findall(pattern, resp.text)))
+        # Parse structured data from AF_initDataCallback for reliable extraction
+        items = self._parse_af_data(html)
 
+        # Fallback to regex if AF_initDataCallback parsing fails
+        if not items:
+            logger.warning("AF_initDataCallback parsing found no photos, trying regex fallback")
+            items = self._regex_fallback(html)
+
+        logger.info(f"Google Photos: found {len(items)} images in shared album")
+        return items
+
+    def _parse_af_data(self, html: str) -> List[Dict[str, Any]]:
+        """Extract photo URLs from AF_initDataCallback data structure.
+
+        Google Photos embeds photo data in AF_initDataCallback({key:'ds:N', data:[...]});
+        blocks. The photo data block contains nested arrays where each photo entry has:
+          [0] = photo ID
+          [1][0] = lh3 base URL
+          [1][1] = width
+          [1][2] = height
+        """
+        # Find all AF_initDataCallback data blocks
+        pattern = r'AF_initDataCallback\(\{[^}]*key:\s*\'ds:\d+\'[^}]*data:(\[[\s\S]*?)\}\);</script>'
+        blocks = re.findall(pattern, html)
+        if not blocks:
+            return []
+
+        # Use the largest block (contains photo data)
+        data_str = max(blocks, key=len)
+        if len(data_str) < 100:
+            return []
+
+        # Extract lh3 photo URLs from the structured data.
+        # Each photo entry looks like: ["PHOTO_ID",["https://lh3...com/pw/HASH",WIDTH,HEIGHT,...
+        # We match the pattern: ,"[" or [" followed by https://lh3... inside the data arrays.
+        photo_pattern = r'\["([^"]{10,})",\["(https://lh3\.googleusercontent\.com/[^"]+)",(\d+),(\d+)'
+        matches = re.findall(photo_pattern, data_str)
+
+        items = []
+        seen = set()
+        for photo_id, url, width, height in matches:
+            if url in seen:
+                continue
+            seen.add(url)
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
+            items.append({
+                'id': f'gph_{url_hash}',
+                'filename': f'gphoto_{url_hash}.jpg',
+                '_download_url': url + '=w0',
+                '_width': int(width),
+                '_height': int(height),
+            })
+
+        return items
+
+    def _regex_fallback(self, html: str) -> List[Dict[str, Any]]:
+        """Fallback: extract lh3 photo URLs via regex."""
+        pattern = r'https://lh3\.googleusercontent\.com/pw/[a-zA-Z0-9_/\-]+'
+        raw_urls = list(set(re.findall(pattern, html)))
         items = []
         for url in raw_urls:
             url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
             items.append({
                 'id': f'gph_{url_hash}',
                 'filename': f'gphoto_{url_hash}.jpg',
-                '_download_url': url + '=w0',  # full resolution
+                '_download_url': url + '=w0',
             })
-
-        logger.info(f"Google Photos: found {len(items)} images in shared album")
         return items
 
     @staticmethod
