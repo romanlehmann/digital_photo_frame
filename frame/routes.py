@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -56,6 +57,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_sysinfo()
         elif path == '/brightness':
             self.serve_brightness()
+        elif path == '/api/monitor_brightness':
+            self.serve_monitor_brightness()
         elif path == '/schedule':
             self.serve_schedule()
         elif path == '/orientation':
@@ -114,6 +117,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_interval()
         elif self.path == '/api/slideshow_settings':
             self.handle_save_slideshow_settings()
+        elif self.path == '/api/monitor_brightness':
+            self.handle_save_monitor_brightness()
         elif self.path == '/api/synology':
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
@@ -296,6 +301,31 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         self._json_response({'brightness': brightness})
+
+    def serve_monitor_brightness(self):
+        """Serve monitor hardware brightness via DDC/CI VCP 0x10."""
+        try:
+            result = subprocess.run(
+                ['sudo', 'ddcutil', 'getvcp', '10'],
+                capture_output=True, text=True, timeout=8
+            )
+            out = (result.stdout or '') + '\n' + (result.stderr or '')
+            m = re.search(r'current value\s*=\s*(\d+),\s*max value\s*=\s*(\d+)', out)
+            if result.returncode == 0 and m:
+                current = int(m.group(1))
+                max_value = max(1, int(m.group(2)))
+                percent = int(round((current / max_value) * 100))
+                self._json_response({
+                    'ok': True,
+                    'available': True,
+                    'brightness': max(0, min(100, percent)),
+                    'raw_current': current,
+                    'raw_max': max_value,
+                })
+                return
+        except Exception:
+            pass
+        self._json_response({'ok': True, 'available': False, 'brightness': None})
 
     def serve_schedule(self):
         """Serve energy save schedule."""
@@ -711,6 +741,27 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             })
         except Exception as e:
             logger.error(f"Failed to save slideshow settings: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_save_monitor_brightness(self):
+        """Set monitor hardware brightness via DDC/CI VCP 0x10."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            value = int(data.get('brightness', 100))
+            value = max(0, min(100, value))
+            result = subprocess.run(
+                ['sudo', 'ddcutil', 'setvcp', '10', str(value)],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                err = (result.stderr or result.stdout or 'ddcutil failed').strip()
+                self._json_response({'ok': False, 'error': err}, 400)
+                return
+            self._json_response({'ok': True, 'brightness': value})
+        except Exception as e:
+            logger.error(f"Failed to set monitor brightness: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_save_orientation(self):
