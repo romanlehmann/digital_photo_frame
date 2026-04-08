@@ -1078,6 +1078,18 @@
         let photoHistory = [];  // stack of previously shown indices
         let lastPhotoCount = 0; // track photo list changes
 
+        function stopSlideshowTimer() {
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+        }
+
+        function restartSlideshowTimer() {
+            stopSlideshowTimer();
+            intervalId = setInterval(showNextPhoto, config.interval);
+        }
+
         // --- Clock overlay ---
         let showClock = false;
         let clockSize = localStorage.getItem('frame-clock-size') || 'm';
@@ -1418,7 +1430,7 @@
             showSettingsPage('main');
             overlay.classList.add('visible');
             // Pause slideshow
-            if (intervalId) clearInterval(intervalId);
+            stopSlideshowTimer();
 
             applyLanguage();
 
@@ -1531,7 +1543,7 @@
             document.getElementById('settings-overlay').classList.remove('visible');
             if (syncPollId) { clearInterval(syncPollId); syncPollId = null; }
             // Resume slideshow
-            intervalId = setInterval(showNextPhoto, config.interval);
+            restartSlideshowTimer();
         }
 
         function showPowerPopup() {
@@ -1611,8 +1623,7 @@
             config.interval = secs * 1000;
             document.getElementById('interval-val').textContent = secs;
             // Restart slideshow timer with new interval
-            if (intervalId) clearInterval(intervalId);
-            intervalId = setInterval(showNextPhoto, config.interval);
+            restartSlideshowTimer();
             // Save to server
             fetch('/api/interval', {
                 method: 'POST',
@@ -1861,7 +1872,7 @@
             showNextPhoto();
 
             // Then show next photos at interval
-            intervalId = setInterval(showNextPhoto, config.interval);
+            restartSlideshowTimer();
 
             // Periodically check for photo list changes (e.g. after sync)
             setInterval(refreshPhotoList, 60000);
@@ -1959,12 +1970,12 @@
                         // Enter sleep
                         isSleeping = true;
                         sleepOverlay.classList.add('active');
-                        if (intervalId) clearInterval(intervalId);
+                        stopSlideshowTimer();
                     } else if (!data.sleeping && isSleeping) {
                         // Wake up
                         isSleeping = false;
                         sleepOverlay.classList.remove('active');
-                        intervalId = setInterval(showNextPhoto, config.interval);
+                        restartSlideshowTimer();
                     }
                 }
             } catch (e) {
