@@ -36,6 +36,9 @@
             object-fit: contain;
             opacity: 0;
             transition: opacity 1s ease-in-out;
+            will-change: opacity, transform;
+            backface-visibility: hidden;
+            transform: translate3d(0, 0, 0);
         }
 
         .photo.active {
@@ -46,6 +49,11 @@
         .photo.previous {
             opacity: 0;
             z-index: 0;
+        }
+
+        @keyframes kenburnsPan {
+            0% { transform: scale(1.08) translate(1.2%, 0.8%); }
+            100% { transform: scale(1.0) translate(0%, 0%); }
         }
 
         #hot-corner {
@@ -681,6 +689,29 @@
                 </div>
             </div>
             <div class="settings-section">
+                <div class="settings-section-title" id="fade-title">Fade Duration</div>
+                <div class="schedule-control">
+                    <div class="time-picker">
+                        <div class="time-digit">
+                            <button class="time-btn" onclick="adjustFadeDuration(0.1)">+</button>
+                            <span class="time-val" id="fade-val">1.0</span>
+                            <button class="time-btn" onclick="adjustFadeDuration(-0.1)">-</button>
+                        </div>
+                    </div>
+                    <span style="color:#888;font-size:16px">s</span>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div class="settings-section-title" id="transition-title">Transition</div>
+                <div class="orientation-control">
+                    <button class="orient-btn" id="transition-fade" onclick="setTransition('fade')">Fade</button>
+                    <button class="orient-btn" id="transition-cut" onclick="setTransition('cut')">Cut</button>
+                    <button class="orient-btn" id="transition-slide" onclick="setTransition('slide')">Slide</button>
+                    <button class="orient-btn" id="transition-zoom" onclick="setTransition('zoom')">Zoom</button>
+                    <button class="orient-btn" id="transition-kenburns" onclick="setTransition('kenburns')">KenBurns</button>
+                </div>
+            </div>
+            <div class="settings-section">
                 <div class="settings-section-title" id="sleep-title">Sleep</div>
                 <div class="schedule-control">
                     <button class="auto-btn" id="schedule-btn" onclick="toggleSchedule()">Sleep</button>
@@ -756,6 +787,7 @@
                 </div>
             </div>
             <div class="settings-buttons">
+                <button class="settings-btn" id="display-apply-btn" onclick="applyDisplaySettings(true)">Apply + Reload</button>
                 <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
             </div>
         </div>
@@ -893,7 +925,15 @@
                 sync_now: 'Sync Now',
                 confirm_sync: 'Start photo sync? The frame may become unresponsive until syncing is finished.',
                 interval: 'Interval',
+                fade_duration: 'Fade Duration',
+                transition: 'Transition',
+                apply_reload: 'Apply + Reload',
                 display: 'Display',
+                transition_fade: 'Fade',
+                transition_cut: 'Cut',
+                transition_slide: 'Slide',
+                transition_zoom: 'Zoom',
+                transition_kenburns: 'KenBurns',
                 back: '\u2190 Back',
                 edit: 'Edit',
                 cancel: 'Cancel',
@@ -954,7 +994,15 @@
                 sync_now: 'Sync',
                 confirm_sync: 'Foto-Sync starten? Der Rahmen reagiert m\u00f6glicherweise nicht, bis die Synchronisierung abgeschlossen ist.',
                 interval: 'Intervall',
+                fade_duration: 'Blenddauer',
+                transition: 'Uebergang',
+                apply_reload: 'Anwenden + Neu laden',
                 display: 'Anzeige',
+                transition_fade: 'Blende',
+                transition_cut: 'Hart',
+                transition_slide: 'Schieben',
+                transition_zoom: 'Zoom',
+                transition_kenburns: 'KenBurns',
                 back: '\u2190 Zur\u00fcck',
                 edit: 'Bearbeiten',
                 cancel: 'Abbrechen',
@@ -1007,6 +1055,14 @@
             document.getElementById('brightness-title').textContent = t('brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
             document.getElementById('interval-title').textContent = t('interval');
+            document.getElementById('fade-title').textContent = t('fade_duration');
+            document.getElementById('transition-title').textContent = t('transition');
+            document.getElementById('transition-fade').textContent = t('transition_fade');
+            document.getElementById('transition-cut').textContent = t('transition_cut');
+            document.getElementById('transition-slide').textContent = t('transition_slide');
+            document.getElementById('transition-zoom').textContent = t('transition_zoom');
+            document.getElementById('transition-kenburns').textContent = t('transition_kenburns');
+            document.getElementById('display-apply-btn').textContent = t('apply_reload');
             document.getElementById('sleep-title').textContent = t('sleep');
             var schedBtn = document.getElementById('schedule-btn');
             schedBtn.textContent = schedBtn.classList.contains('active') ? t('sleep_active') : t('sleep_inactive');
@@ -1027,7 +1083,7 @@
                 for (var i = 0; i < 7; i++) wdBtns[i].textContent = wdLabels[i];
             }
             var displayBtns = document.querySelectorAll('#settings-display .settings-buttons .settings-btn');
-            displayBtns[0].textContent = t('back');
+            displayBtns[1].textContent = t('back');
             // Albums page
             document.getElementById('albums-title').textContent = t('photo_albums');
             var albumBtns = document.querySelectorAll('#settings-albums .settings-buttons .settings-btn');
@@ -1067,6 +1123,7 @@
         let config = {
             interval: 300000,         // default 5 min (ms)
             fade_duration: 1.0,       // seconds
+            transition: 'fade',
             hot_corner_size: 200,
         };
 
@@ -1088,6 +1145,58 @@
         function restartSlideshowTimer() {
             stopSlideshowTimer();
             intervalId = setInterval(showNextPhoto, config.interval);
+        }
+
+        function applyTransitionStyle() {
+            let style = document.getElementById('slideshow-transition-style');
+            if (!style) {
+                style = document.createElement('style');
+                style.id = 'slideshow-transition-style';
+                document.head.appendChild(style);
+            }
+            const fade = Math.max(0, Number(config.fade_duration) || 0).toFixed(1);
+            const kenburns = Math.max((config.interval || 10000) / 1000, 6).toFixed(1);
+            let css = `
+                #slideshow .photo {
+                    transition: opacity ${fade}s ease-in-out;
+                    transform: none;
+                    animation: none;
+                }
+                #slideshow.transition-cut .photo {
+                    transition: none !important;
+                }
+                #slideshow.transition-slide .photo {
+                    transition: opacity ${fade}s ease-in-out, transform ${fade}s ease-in-out;
+                    transform: translate3d(4%, 0, 0);
+                }
+                #slideshow.transition-slide .photo.active {
+                    transform: translate3d(0, 0, 0);
+                }
+                #slideshow.transition-slide .photo.previous {
+                    transform: translate3d(-4%, 0, 0);
+                }
+                #slideshow.transition-zoom .photo {
+                    transition: opacity ${fade}s ease-in-out, transform ${fade}s ease-in-out;
+                    transform: scale(1.02) translate3d(0, 0, 0);
+                }
+                #slideshow.transition-zoom .photo.active {
+                    transform: scale(1.0) translate3d(0, 0, 0);
+                }
+                #slideshow.transition-zoom .photo.previous {
+                    transform: scale(0.98) translate3d(0, 0, 0);
+                }
+                #slideshow.transition-kenburns .photo {
+                    transition: opacity ${fade}s ease-in-out;
+                    transform: scale(1.03) translate3d(0, 0, 0);
+                }
+                #slideshow.transition-kenburns .photo.active {
+                    animation: kenburnsPan ${kenburns}s ease-out both;
+                }
+            `;
+            style.textContent = css;
+            const slideshow = document.getElementById('slideshow');
+            slideshow.classList.remove('transition-fade', 'transition-cut', 'transition-slide', 'transition-zoom', 'transition-kenburns');
+            slideshow.classList.add(`transition-${config.transition}`);
         }
 
         // --- Clock overlay ---
@@ -1441,6 +1550,8 @@
             updateAutoBrightnessUI();
             loadOrientation();
             loadInterval();
+            loadFadeDuration();
+            setTransition(config.transition);
             loadSchedule();
             document.getElementById('clock-off').classList.toggle('active', !showClock);
             document.getElementById('clock-on').classList.toggle('active', showClock);
@@ -1616,6 +1727,52 @@
             document.getElementById('interval-val').textContent = Math.round(config.interval / 1000);
         }
 
+        function loadFadeDuration() {
+            document.getElementById('fade-val').textContent = config.fade_duration.toFixed(1);
+        }
+
+        function adjustFadeDuration(delta) {
+            let value = Math.round((config.fade_duration + delta) * 10) / 10;
+            if (value < 0.0) value = 0.0;
+            if (value > 5.0) value = 5.0;
+            config.fade_duration = value;
+            loadFadeDuration();
+            applyTransitionStyle();
+        }
+
+        function setTransition(mode) {
+            const allowed = ['fade', 'cut', 'slide', 'zoom', 'kenburns'];
+            config.transition = allowed.includes(mode) ? mode : 'fade';
+            document.getElementById('transition-fade').classList.toggle('active', config.transition === 'fade');
+            document.getElementById('transition-cut').classList.toggle('active', config.transition === 'cut');
+            document.getElementById('transition-slide').classList.toggle('active', config.transition === 'slide');
+            document.getElementById('transition-zoom').classList.toggle('active', config.transition === 'zoom');
+            document.getElementById('transition-kenburns').classList.toggle('active', config.transition === 'kenburns');
+            applyTransitionStyle();
+        }
+
+        async function applyDisplaySettings(reloadAfter = true) {
+            const payload = {
+                interval: Math.round(config.interval / 1000),
+                fade_duration: config.fade_duration,
+                transition: config.transition,
+            };
+            try {
+                const resp = await fetch('/api/slideshow_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                if (!data.ok) throw new Error(data.error || 'save failed');
+                if (reloadAfter) {
+                    location.reload();
+                }
+            } catch (e) {
+                console.error('Failed to save display settings:', e);
+            }
+        }
+
         function adjustInterval(delta) {
             let secs = Math.round(config.interval / 1000) + delta;
             if (secs < 10) secs = 10;
@@ -1735,11 +1892,9 @@
                     const serverConfig = await cfgResp.json();
                     config.interval = (serverConfig.interval || 300) * 1000;
                     config.fade_duration = serverConfig.fade_duration || 1.0;
-                    // Apply fade duration to CSS
-                    document.querySelectorAll('.photo, style').forEach(() => {});
-                    const style = document.createElement('style');
-                    style.textContent = `.photo { transition: opacity ${config.fade_duration}s ease-in-out; }`;
-                    document.head.appendChild(style);
+                    config.transition = ['fade', 'cut', 'slide', 'zoom', 'kenburns'].includes(serverConfig.transition)
+                        ? serverConfig.transition : 'fade';
+                    applyTransitionStyle();
                 }
 
                 // Load photos list
@@ -1807,13 +1962,29 @@
         }
 
         let transitioning = false;
+        let nextPreload = { path: null, img: null, promise: null };
 
-        async function showPhoto(photoPath) {
+        function queueNextPreload() {
+            if (!photos.length) return;
+            const nextPath = photos[currentIndex];
+            if (!nextPath || nextPreload.path === nextPath) return;
+            nextPreload = {
+                path: nextPath,
+                img: null,
+                promise: preloadImage(nextPath)
+                    .then((img) => {
+                        if (nextPreload.path === nextPath) nextPreload.img = img;
+                        return img;
+                    })
+                    .catch(() => null),
+            };
+        }
+
+        async function showPhoto(photoPath, preloaded = null) {
             const slideshow = document.getElementById('slideshow');
             try {
-                await preloadImage(photoPath);
-                const newImage = document.createElement('img');
-                newImage.src = photoPath;
+                const loaded = preloaded || await preloadImage(photoPath);
+                const newImage = loaded;
                 newImage.className = 'photo';
                 slideshow.appendChild(newImage);
                 await new Promise(resolve => setTimeout(resolve, 50));
@@ -1839,7 +2010,10 @@
                 photoHistory.push(currentIndex);
                 if (photoHistory.length > 50) photoHistory.shift();
                 const photoPath = photos[currentIndex];
-                if (await showPhoto(photoPath)) {
+                const preloaded = (nextPreload.path === photoPath && nextPreload.promise)
+                    ? await nextPreload.promise
+                    : await preloadImage(photoPath);
+                if (await showPhoto(photoPath, preloaded)) {
                     currentIndex = (currentIndex + 1) % photos.length;
                     if (currentIndex === 0) {
                         for (let i = photos.length - 1; i > 0; i--) {
@@ -1847,8 +2021,10 @@
                             [photos[i], photos[j]] = [photos[j], photos[i]];
                         }
                     }
+                    queueNextPreload();
                 } else {
                     currentIndex = (currentIndex + 1) % photos.length;
+                    queueNextPreload();
                 }
             } finally {
                 transitioning = false;
@@ -1867,7 +2043,23 @@
             }
         }
 
+        function canManualNavigate() {
+            if (isSleeping) return false;
+            return !document.getElementById('settings-overlay').classList.contains('visible');
+        }
+
+        function manualNavigateByX(x) {
+            if (!canManualNavigate()) return;
+            if (x > window.innerWidth / 2) {
+                showNextPhoto();
+            } else {
+                showPrevPhoto();
+            }
+            restartSlideshowTimer();
+        }
+
         function startSlideshow() {
+            queueNextPreload();
             // Show first photo immediately
             showNextPhoto();
 
@@ -1894,6 +2086,8 @@
                 }
                 currentIndex = 0;
                 photoHistory = [];
+                nextPreload = { path: null, img: null, promise: null };
+                queueNextPreload();
                 console.log('Photo list updated:', photos.length, 'photos');
             } catch (e) {}
         }
@@ -1903,9 +2097,15 @@
             if (e.key === 'Escape' || e.key === 'q' || e.key === 'Q') {
                 hotCorner.click();
             } else if (e.key === ' ' || e.key === 'ArrowRight') {
-                showNextPhoto();
+                if (canManualNavigate()) {
+                    showNextPhoto();
+                    restartSlideshowTimer();
+                }
             } else if (e.key === 'ArrowLeft') {
-                showPrevPhoto();
+                if (canManualNavigate()) {
+                    showPrevPhoto();
+                    restartSlideshowTimer();
+                }
             }
         });
 
@@ -1913,6 +2113,7 @@
         let touchStartX = null;
         let touchStartY = null;
         let touchStartTime = 0;
+        let lastTouchNavAt = 0;
 
         document.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1) {
@@ -1935,13 +2136,25 @@
 
             // Only register horizontal swipes (X movement > Y movement)
             if (Math.abs(diffX) > 50 && Math.abs(diffX) > diffY) {
+                lastTouchNavAt = Date.now();
                 if (diffX > 0) {
-                    showNextPhoto();
+                    manualNavigateByX(window.innerWidth);
                 } else {
-                    showPrevPhoto();
+                    manualNavigateByX(0);
                 }
+            } else if (Math.abs(diffX) < 20 && diffY < 20 && elapsed < 500) {
+                // Tap navigation: left half = previous, right half = next
+                lastTouchNavAt = Date.now();
+                manualNavigateByX(touchEndX);
             }
             touchStartX = null;
+        });
+
+        document.addEventListener('click', (e) => {
+            if (Date.now() - lastTouchNavAt < 700) return;
+            if (!canManualNavigate()) return;
+            if (e.target.closest('#hot-corner') || e.target.closest('#sleep-overlay')) return;
+            manualNavigateByX(e.clientX);
         });
 
         // Sleep mode: poll server, show black overlay when sleeping

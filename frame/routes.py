@@ -112,6 +112,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_sync_trigger()
         elif self.path == '/api/interval':
             self.handle_save_interval()
+        elif self.path == '/api/slideshow_settings':
+            self.handle_save_slideshow_settings()
         elif self.path == '/api/synology':
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
@@ -661,6 +663,54 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self._json_response({'ok': True, 'interval': interval})
         except Exception as e:
             logger.error(f"Failed to save interval: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_save_slideshow_settings(self):
+        """Save slideshow settings (interval, fade duration, transition)."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+
+            interval = int(data.get('interval', self.slideshow_config.get('interval', 300)))
+            if interval < 10:
+                interval = 10
+            if interval > 3600:
+                interval = 3600
+
+            fade_duration = float(data.get('fade_duration', self.slideshow_config.get('fade_duration', 1.0)))
+            if fade_duration < 0.0:
+                fade_duration = 0.0
+            if fade_duration > 5.0:
+                fade_duration = 5.0
+            fade_duration = round(fade_duration, 1)
+
+            transition = str(data.get('transition', self.slideshow_config.get('transition', 'fade'))).lower()
+            if transition not in ('fade', 'cut', 'slide', 'zoom', 'kenburns'):
+                transition = 'fade'
+
+            with open(self.app.config_path) as f:
+                cfg = yaml.safe_load(f)
+            slideshow = cfg.setdefault('slideshow', {})
+            slideshow['interval'] = interval
+            slideshow['fade_duration'] = fade_duration
+            slideshow['transition'] = transition
+            with open(self.app.config_path, 'w') as f:
+                yaml.dump(cfg, f, default_flow_style=False)
+
+            # Update in-memory slideshow config
+            self.slideshow_config['interval'] = interval
+            self.slideshow_config['fade_duration'] = fade_duration
+            self.slideshow_config['transition'] = transition
+
+            self._json_response({
+                'ok': True,
+                'interval': interval,
+                'fade_duration': fade_duration,
+                'transition': transition,
+            })
+        except Exception as e:
+            logger.error(f"Failed to save slideshow settings: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_save_orientation(self):
