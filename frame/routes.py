@@ -27,6 +27,13 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
     app = None  # Set by create_handler()
 
+    _BRIGHTNESS_SENSOR_DEFAULTS = {
+        'enabled': False,
+        'gpio': 22,
+        'brightness_light': 80,
+        'brightness_dark': 25,
+    }
+
     def __init__(self, *args, photos_dir='/srv/frame/photos', viewer_dir='/srv/frame/viewer', slideshow_config=None, **kwargs):
         self.photos_dir = Path(photos_dir)
         self.viewer_dir = Path(viewer_dir)
@@ -190,7 +197,27 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
 
     def serve_config_json(self):
         """Serve slideshow configuration as JSON."""
-        content = json.dumps(self.slideshow_config).encode('utf-8')
+        cfg = dict(self.slideshow_config or {})
+        sensor_cfg = {}
+        app_sensor = {}
+        if self.app and isinstance(self.app.config, dict):
+            app_sensor = self.app.config.get('brightness_sensor', {}) or {}
+        defaults = self._BRIGHTNESS_SENSOR_DEFAULTS
+        sensor_cfg['enabled'] = bool(app_sensor.get('enabled', defaults['enabled']))
+        try:
+            sensor_cfg['gpio'] = int(app_sensor.get('gpio', defaults['gpio']))
+        except Exception:
+            sensor_cfg['gpio'] = defaults['gpio']
+        try:
+            sensor_cfg['brightness_light'] = max(0, min(100, int(app_sensor.get('brightness_light', defaults['brightness_light']))))
+        except Exception:
+            sensor_cfg['brightness_light'] = defaults['brightness_light']
+        try:
+            sensor_cfg['brightness_dark'] = max(0, min(100, int(app_sensor.get('brightness_dark', defaults['brightness_dark']))))
+        except Exception:
+            sensor_cfg['brightness_dark'] = defaults['brightness_dark']
+        cfg['brightness_sensor'] = sensor_cfg
+        content = json.dumps(cfg).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Content-Length', len(content))
@@ -294,13 +321,55 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         """Serve auto brightness value from ambient light sensor."""
         brightness = None
         try:
-            sensor_file = Path('/tmp/frame-brightness')
-            if sensor_file.exists():
-                val = int(sensor_file.read_text().strip())
-                brightness = max(10, min(100, val))
+            sensor_cfg = (self.app.config.get('brightness_sensor', {}) if self.app else {}) or {}
+            if sensor_cfg:
+                enabled = bool(sensor_cfg.get('enabled', False))
+                if enabled:
+                    gpio = int(sensor_cfg.get('gpio', self._BRIGHTNESS_SENSOR_DEFAULTS['gpio']))
+                    light = max(0, min(100, int(sensor_cfg.get('brightness_light', self._BRIGHTNESS_SENSOR_DEFAULTS['brightness_light']))))
+                    dark = max(0, min(100, int(sensor_cfg.get('brightness_dark', self._BRIGHTNESS_SENSOR_DEFAULTS['brightness_dark']))))
+                    state = self._read_gpio_state(gpio)
+                    if state is not None:
+                        # LM393 module output: 1 = bright, 0 = dark (threshold via potentiometer)
+                        brightness = light if state == 1 else dark
+                else:
+                    brightness = None
+            else:
+                # Backward compatibility with older external sensor script.
+                sensor_file = Path('/tmp/frame-brightness')
+                if sensor_file.exists():
+                    val = int(sensor_file.read_text().strip())
+                    brightness = max(10, min(100, val))
         except Exception:
             pass
         self._json_response({'brightness': brightness})
+
+    def _read_gpio_state(self, gpio_pin: int):
+        """Read GPIO digital state via gpiod tools."""
+        try:
+            result = subprocess.run(
+                ['gpioget', '--numeric', '-c', 'gpiochip0', str(gpio_pin)],
+                capture_output=True, text=True, timeout=2
+            )
+            if result.returncode == 0:
+                out = (result.stdout or '').strip()
+                if out in ('0', '1'):
+                    return int(out)
+        except Exception:
+            pass
+        # Fallback for systems where line is already requested by another process.
+        try:
+            result = subprocess.run(
+                ['pinctrl', 'lev', str(gpio_pin)],
+                capture_output=True, text=True, timeout=2
+            )
+            if result.returncode == 0:
+                out = (result.stdout or '').strip()
+                if out in ('0', '1'):
+                    return int(out)
+        except Exception:
+            pass
+        return None
 
     def serve_monitor_brightness(self):
         """Serve monitor hardware brightness via DDC/CI VCP 0x10."""
@@ -696,7 +765,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_save_slideshow_settings(self):
-        """Save slideshow settings (interval, fade duration, transition)."""
+        """Save slideshow settings (interval, fade duration, transition, brightness sensor)."""
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length)
         try:
@@ -719,12 +788,43 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             if transition not in ('fade', 'cut', 'slide', 'zoom', 'kenburns'):
                 transition = 'fade'
 
+            raw_sensor_enabled = data.get(
+                'brightness_sensor_enabled',
+                self.app.config.get('brightness_sensor', {}).get('enabled', self._BRIGHTNESS_SENSOR_DEFAULTS['enabled'])
+            )
+            sensor_enabled = raw_sensor_enabled if isinstance(raw_sensor_enabled, bool) else str(raw_sensor_enabled).lower() in ('1', 'true', 'yes', 'on')
+
+            sensor_gpio = int(data.get(
+                'brightness_sensor_gpio',
+                self.app.config.get('brightness_sensor', {}).get('gpio', self._BRIGHTNESS_SENSOR_DEFAULTS['gpio'])
+            ))
+            if sensor_gpio < 0:
+                sensor_gpio = 0
+            if sensor_gpio > 27:
+                sensor_gpio = 27
+
+            sensor_light = int(data.get(
+                'brightness_sensor_light',
+                self.app.config.get('brightness_sensor', {}).get('brightness_light', self._BRIGHTNESS_SENSOR_DEFAULTS['brightness_light'])
+            ))
+            sensor_dark = int(data.get(
+                'brightness_sensor_dark',
+                self.app.config.get('brightness_sensor', {}).get('brightness_dark', self._BRIGHTNESS_SENSOR_DEFAULTS['brightness_dark'])
+            ))
+            sensor_light = max(0, min(100, sensor_light))
+            sensor_dark = max(0, min(100, sensor_dark))
+
             with open(self.app.config_path) as f:
                 cfg = yaml.safe_load(f)
             slideshow = cfg.setdefault('slideshow', {})
             slideshow['interval'] = interval
             slideshow['fade_duration'] = fade_duration
             slideshow['transition'] = transition
+            brightness_sensor = cfg.setdefault('brightness_sensor', {})
+            brightness_sensor['enabled'] = sensor_enabled
+            brightness_sensor['gpio'] = sensor_gpio
+            brightness_sensor['brightness_light'] = sensor_light
+            brightness_sensor['brightness_dark'] = sensor_dark
             with open(self.app.config_path, 'w') as f:
                 yaml.dump(cfg, f, default_flow_style=False)
 
@@ -732,12 +832,19 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.slideshow_config['interval'] = interval
             self.slideshow_config['fade_duration'] = fade_duration
             self.slideshow_config['transition'] = transition
+            self.app.config = cfg
 
             self._json_response({
                 'ok': True,
                 'interval': interval,
                 'fade_duration': fade_duration,
                 'transition': transition,
+                'brightness_sensor': {
+                    'enabled': sensor_enabled,
+                    'gpio': sensor_gpio,
+                    'brightness_light': sensor_light,
+                    'brightness_dark': sensor_dark,
+                },
             })
         except Exception as e:
             logger.error(f"Failed to save slideshow settings: {e}")

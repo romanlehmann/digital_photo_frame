@@ -680,6 +680,23 @@
                            oninput="setMonitorBrightness(this.value)">
                     <span class="brightness-value" id="monitor-brightness-value">--</span>
                 </div>
+                <div class="settings-section-title" id="sensor-title" style="margin-top:16px;">Brightness Sensor</div>
+                <div class="brightness-control" style="margin-bottom:10px;">
+                    <button class="auto-btn" id="sensor-toggle-btn" onclick="toggleBrightnessSensor()">Off</button>
+                    <span class="brightness-value" id="sensor-gpio-label">GPIO22</span>
+                </div>
+                <div class="settings-section-title" id="sensor-light-title" style="font-size:16px;color:#999;">Brightness When Light</div>
+                <div class="brightness-control">
+                    <input type="range" id="sensor-light-slider" min="0" max="100" value="80"
+                           oninput="setSensorTarget('light', this.value)">
+                    <span class="brightness-value" id="sensor-light-value">80%</span>
+                </div>
+                <div class="settings-section-title" id="sensor-dark-title" style="font-size:16px;color:#999;margin-top:10px;">Brightness When Dark</div>
+                <div class="brightness-control">
+                    <input type="range" id="sensor-dark-slider" min="0" max="100" value="25"
+                           oninput="setSensorTarget('dark', this.value)">
+                    <span class="brightness-value" id="sensor-dark-value">25%</span>
+                </div>
             </div>
             <div class="settings-section">
                 <div class="settings-section-title" id="interval-title">Interval</div>
@@ -911,6 +928,9 @@
                 vertical: 'Vertical',
                 brightness: 'Brightness',
                 monitor_brightness: 'Monitor Brightness',
+                brightness_sensor: 'Brightness Sensor',
+                brightness_sensor_light: 'Brightness When Light',
+                brightness_sensor_dark: 'Brightness When Dark',
                 auto: 'Auto',
                 sleep: 'Sleep Mode',
                 sleep_active: 'Active',
@@ -981,6 +1001,9 @@
                 vertical: 'Vertikal',
                 brightness: 'Helligkeit',
                 monitor_brightness: 'Monitor-Helligkeit',
+                brightness_sensor: 'Helligkeitssensor',
+                brightness_sensor_light: 'Helligkeit bei Hell',
+                brightness_sensor_dark: 'Helligkeit bei Dunkel',
                 auto: 'Auto',
                 sleep: 'Schlafmodus',
                 sleep_active: 'Aktiv',
@@ -1062,6 +1085,9 @@
             document.getElementById('display-title').textContent = t('display');
             document.getElementById('brightness-title').textContent = t('brightness');
             document.getElementById('monitor-brightness-title').textContent = t('monitor_brightness');
+            document.getElementById('sensor-title').textContent = t('brightness_sensor');
+            document.getElementById('sensor-light-title').textContent = t('brightness_sensor_light');
+            document.getElementById('sensor-dark-title').textContent = t('brightness_sensor_dark');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
             document.getElementById('interval-title').textContent = t('interval');
             document.getElementById('fade-title').textContent = t('fade_duration');
@@ -1071,6 +1097,7 @@
             document.getElementById('transition-slide').textContent = t('transition_slide');
             document.getElementById('transition-zoom').textContent = t('transition_zoom');
             document.getElementById('transition-kenburns').textContent = t('transition_kenburns');
+            updateBrightnessSensorUI();
             document.getElementById('display-apply-btn').textContent = t('apply_reload');
             document.getElementById('sleep-title').textContent = t('sleep');
             var schedBtn = document.getElementById('schedule-btn');
@@ -1133,6 +1160,10 @@
             interval: 300000,         // default 5 min (ms)
             fade_duration: 1.0,       // seconds
             transition: 'fade',
+            brightness_sensor_enabled: false,
+            brightness_sensor_gpio: 22,
+            brightness_sensor_light: 80,
+            brightness_sensor_dark: 25,
             hot_corner_size: 200,
         };
 
@@ -1404,6 +1435,47 @@
             }, 120);
         }
 
+        function updateBrightnessSensorUI() {
+            const enabled = !!config.brightness_sensor_enabled;
+            const toggleBtn = document.getElementById('sensor-toggle-btn');
+            const gpioLabel = document.getElementById('sensor-gpio-label');
+            const lightSlider = document.getElementById('sensor-light-slider');
+            const darkSlider = document.getElementById('sensor-dark-slider');
+            const lightVal = document.getElementById('sensor-light-value');
+            const darkVal = document.getElementById('sensor-dark-value');
+
+            toggleBtn.classList.toggle('active', enabled);
+            toggleBtn.textContent = enabled ? t('on') : t('off');
+            gpioLabel.textContent = 'GPIO' + config.brightness_sensor_gpio;
+
+            lightSlider.value = config.brightness_sensor_light;
+            darkSlider.value = config.brightness_sensor_dark;
+            lightVal.textContent = config.brightness_sensor_light + '%';
+            darkVal.textContent = config.brightness_sensor_dark + '%';
+
+            lightSlider.disabled = !enabled;
+            darkSlider.disabled = !enabled;
+            lightSlider.style.opacity = enabled ? '1' : '0.4';
+            darkSlider.style.opacity = enabled ? '1' : '0.4';
+        }
+
+        function toggleBrightnessSensor() {
+            config.brightness_sensor_enabled = !config.brightness_sensor_enabled;
+            updateBrightnessSensorUI();
+        }
+
+        function setSensorTarget(kind, val) {
+            let pct = parseInt(val);
+            if (!Number.isFinite(pct)) pct = 0;
+            pct = Math.max(0, Math.min(100, pct));
+            if (kind === 'light') {
+                config.brightness_sensor_light = pct;
+            } else {
+                config.brightness_sensor_dark = pct;
+            }
+            updateBrightnessSensorUI();
+        }
+
         function toggleAutoBrightness() {
             autoBrightnessEnabled = !autoBrightnessEnabled;
             localStorage.setItem('frame-auto-brightness', autoBrightnessEnabled);
@@ -1604,6 +1676,7 @@
             document.getElementById('brightness-slider').value = currentBrightness;
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
             loadMonitorBrightness();
+            updateBrightnessSensorUI();
             updateAutoBrightnessUI();
             loadOrientation();
             loadInterval();
@@ -1813,6 +1886,10 @@
                 interval: Math.round(config.interval / 1000),
                 fade_duration: config.fade_duration,
                 transition: config.transition,
+                brightness_sensor_enabled: !!config.brightness_sensor_enabled,
+                brightness_sensor_gpio: config.brightness_sensor_gpio,
+                brightness_sensor_light: config.brightness_sensor_light,
+                brightness_sensor_dark: config.brightness_sensor_dark,
             };
             try {
                 const resp = await fetch('/api/slideshow_settings', {
@@ -1951,6 +2028,15 @@
                     config.fade_duration = serverConfig.fade_duration || 1.0;
                     config.transition = ['fade', 'cut', 'slide', 'zoom', 'kenburns'].includes(serverConfig.transition)
                         ? serverConfig.transition : 'fade';
+                    if (serverConfig.brightness_sensor && typeof serverConfig.brightness_sensor === 'object') {
+                        const bs = serverConfig.brightness_sensor;
+                        const light = parseInt(bs.brightness_light ?? 80);
+                        const dark = parseInt(bs.brightness_dark ?? 25);
+                        config.brightness_sensor_enabled = !!bs.enabled;
+                        config.brightness_sensor_gpio = Number.isInteger(bs.gpio) ? bs.gpio : 22;
+                        config.brightness_sensor_light = Math.max(0, Math.min(100, Number.isFinite(light) ? light : 80));
+                        config.brightness_sensor_dark = Math.max(0, Math.min(100, Number.isFinite(dark) ? dark : 25));
+                    }
                     applyTransitionStyle();
                 }
 
