@@ -181,7 +181,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             overflow-y: auto;
         }
 
@@ -1089,6 +1089,7 @@
             document.getElementById('sensor-light-title').textContent = t('brightness_sensor_light');
             document.getElementById('sensor-dark-title').textContent = t('brightness_sensor_dark');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
+            updateAutoBrightnessUI();
             document.getElementById('interval-title').textContent = t('interval');
             document.getElementById('fade-title').textContent = t('fade_duration');
             document.getElementById('transition-title').textContent = t('transition');
@@ -1378,6 +1379,9 @@
         let autoBrightnessEnabled = localStorage.getItem('frame-auto-brightness') === 'true';
         let autoBrightnessInterval = null;
         let monitorBrightnessTimer = null;
+        let sensorSettingsSaveTimer = null;
+        let sensorForcesAutoBrightness = false;
+        let autoBrightnessPollMs = 30000;
 
         function setBrightness(val) {
             const pct = parseInt(val);
@@ -1462,6 +1466,8 @@
         function toggleBrightnessSensor() {
             config.brightness_sensor_enabled = !config.brightness_sensor_enabled;
             updateBrightnessSensorUI();
+            refreshAutoBrightnessMode();
+            queueSaveSensorSettings();
         }
 
         function setSensorTarget(kind, val) {
@@ -1474,24 +1480,52 @@
                 config.brightness_sensor_dark = pct;
             }
             updateBrightnessSensorUI();
+            queueSaveSensorSettings();
+        }
+
+        function queueSaveSensorSettings() {
+            if (sensorSettingsSaveTimer) clearTimeout(sensorSettingsSaveTimer);
+            sensorSettingsSaveTimer = setTimeout(() => {
+                applyDisplaySettings(false);
+            }, 180);
         }
 
         function toggleAutoBrightness() {
+            if (sensorForcesAutoBrightness) return;
             autoBrightnessEnabled = !autoBrightnessEnabled;
             localStorage.setItem('frame-auto-brightness', autoBrightnessEnabled);
-            updateAutoBrightnessUI();
+            applyAutoBrightnessState();
+        }
 
+        function applyAutoBrightnessState() {
+            if (autoBrightnessInterval) {
+                clearInterval(autoBrightnessInterval);
+                autoBrightnessInterval = null;
+            }
+            updateAutoBrightnessUI();
             if (autoBrightnessEnabled) {
                 fetchAutoBrightness();
-                autoBrightnessInterval = setInterval(fetchAutoBrightness, 30000);
-            } else {
-                if (autoBrightnessInterval) { clearInterval(autoBrightnessInterval); autoBrightnessInterval = null; }
+                autoBrightnessInterval = setInterval(fetchAutoBrightness, autoBrightnessPollMs);
             }
+        }
+
+        function refreshAutoBrightnessMode() {
+            sensorForcesAutoBrightness = !!config.brightness_sensor_enabled;
+            autoBrightnessPollMs = sensorForcesAutoBrightness ? 5000 : 30000;
+            if (sensorForcesAutoBrightness) {
+                autoBrightnessEnabled = true;
+            } else {
+                autoBrightnessEnabled = localStorage.getItem('frame-auto-brightness') === 'true';
+            }
+            applyAutoBrightnessState();
         }
 
         function updateAutoBrightnessUI() {
             const btn = document.getElementById('auto-brightness-btn');
             const slider = document.getElementById('brightness-slider');
+            btn.textContent = t('auto');
+            btn.disabled = false;
+            btn.style.opacity = '1';
             if (autoBrightnessEnabled) {
                 btn.classList.add('active');
                 slider.disabled = true;
@@ -1501,6 +1535,13 @@
                 slider.disabled = false;
                 slider.style.opacity = '1';
             }
+            if (sensorForcesAutoBrightness) {
+                btn.classList.add('active');
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+                slider.disabled = true;
+                slider.style.opacity = '0.4';
+            }
         }
 
         async function fetchAutoBrightness() {
@@ -1509,7 +1550,13 @@
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.brightness != null) {
-                        setBrightness(data.brightness);
+                        if (sensorForcesAutoBrightness) {
+                            // Sensor mode controls real monitor backlight via DDC/CI.
+                            setMonitorBrightness(data.brightness);
+                        } else {
+                            // Manual Auto button keeps legacy CSS brightness behavior.
+                            setBrightness(data.brightness);
+                        }
                     }
                 }
             } catch (e) {
@@ -1522,11 +1569,7 @@
         if (savedBrightness) {
             setBrightness(savedBrightness);
         }
-        if (autoBrightnessEnabled) {
-            updateAutoBrightnessUI();
-            fetchAutoBrightness();
-            autoBrightnessInterval = setInterval(fetchAutoBrightness, 30000);
-        }
+        refreshAutoBrightnessMode();
 
         // Settings overlay
         function showSettingsPage(page) {
@@ -2037,6 +2080,7 @@
                         config.brightness_sensor_light = Math.max(0, Math.min(100, Number.isFinite(light) ? light : 80));
                         config.brightness_sensor_dark = Math.max(0, Math.min(100, Number.isFinite(dark) ? dark : 25));
                     }
+                    refreshAutoBrightnessMode();
                     applyTransitionStyle();
                 }
 

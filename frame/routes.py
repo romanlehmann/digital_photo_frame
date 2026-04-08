@@ -330,8 +330,9 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
                     dark = max(0, min(100, int(sensor_cfg.get('brightness_dark', self._BRIGHTNESS_SENSOR_DEFAULTS['brightness_dark']))))
                     state = self._read_gpio_state(gpio)
                     if state is not None:
-                        # LM393 module output: 1 = bright, 0 = dark (threshold via potentiometer)
-                        brightness = light if state == 1 else dark
+                        # Inverted mapping for deployed LDR module wiring:
+                        # 1 = dark, 0 = bright.
+                        brightness = dark if state == 1 else light
                 else:
                     brightness = None
             else:
