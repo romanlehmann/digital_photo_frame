@@ -60,6 +60,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.serve_brightness()
         elif path == '/api/monitor_brightness':
             self.serve_monitor_brightness()
+        elif path == '/api/ha_brightness_settings':
+            self.serve_ha_brightness_settings()
         elif path == '/schedule':
             self.serve_schedule()
         elif path == '/orientation':
@@ -120,6 +122,10 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_save_slideshow_settings()
         elif self.path == '/api/monitor_brightness':
             self.handle_save_monitor_brightness()
+        elif self.path == '/api/ha_brightness_settings':
+            self.handle_save_ha_brightness_settings()
+        elif self.path == '/api/ha_lux':
+            self.handle_ha_lux()
         elif self.path == '/api/synology':
             self.handle_save_synology_config()
         elif self.path == '/api/google_photos':
@@ -327,6 +333,43 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         self._json_response({'ok': True, 'available': False, 'brightness': None})
+
+    def _get_ha_brightness_settings(self):
+        cfg = (self.app.config or {}).get('ha_brightness', {}) if self.app else {}
+        enabled = bool(cfg.get('enabled', False))
+        try:
+            min_b = int(cfg.get('min_brightness', 0))
+        except Exception:
+            min_b = 0
+        try:
+            max_b = int(cfg.get('max_brightness', 100))
+        except Exception:
+            max_b = 100
+        min_b = max(0, min(100, min_b))
+        max_b = max(0, min(100, max_b))
+        if min_b > max_b:
+            min_b, max_b = max_b, min_b
+        return {
+            'enabled': enabled,
+            'min_brightness': min_b,
+            'max_brightness': max_b,
+            'lux_min': 0,
+            'lux_max': 2600,
+        }
+
+    def _set_monitor_brightness(self, value):
+        value = max(0, min(100, int(value)))
+        result = subprocess.run(
+            ['sudo', 'ddcutil', 'setvcp', '10', str(value)],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or 'ddcutil failed').strip()
+            return False, err
+        return True, value
+
+    def serve_ha_brightness_settings(self):
+        self._json_response({'ok': True, **self._get_ha_brightness_settings()})
 
     def serve_schedule(self):
         """Serve energy save schedule."""
@@ -751,18 +794,80 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         try:
             data = json.loads(body)
             value = int(data.get('brightness', 100))
-            value = max(0, min(100, value))
-            result = subprocess.run(
-                ['sudo', 'ddcutil', 'setvcp', '10', str(value)],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode != 0:
-                err = (result.stderr or result.stdout or 'ddcutil failed').strip()
-                self._json_response({'ok': False, 'error': err}, 400)
+            ok, result = self._set_monitor_brightness(value)
+            if not ok:
+                self._json_response({'ok': False, 'error': result}, 400)
                 return
-            self._json_response({'ok': True, 'brightness': value})
+            self._json_response({'ok': True, 'brightness': result})
         except Exception as e:
             logger.error(f"Failed to set monitor brightness: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_save_ha_brightness_settings(self):
+        """Save HA-driven auto brightness settings."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            enabled = bool(data.get('enabled', False))
+            min_b = max(0, min(100, int(data.get('min_brightness', 0))))
+            max_b = max(0, min(100, int(data.get('max_brightness', 100))))
+            if min_b > max_b:
+                min_b, max_b = max_b, min_b
+
+            with open(self.app.config_path) as f:
+                cfg = yaml.safe_load(f)
+            ha_cfg = cfg.setdefault('ha_brightness', {})
+            ha_cfg['enabled'] = enabled
+            ha_cfg['min_brightness'] = min_b
+            ha_cfg['max_brightness'] = max_b
+            with open(self.app.config_path, 'w') as f:
+                yaml.dump(cfg, f, default_flow_style=False)
+            self.app.config = cfg
+
+            self._json_response({
+                'ok': True,
+                'enabled': enabled,
+                'min_brightness': min_b,
+                'max_brightness': max_b,
+            })
+        except Exception as e:
+            logger.error(f"Failed to save HA brightness settings: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
+
+    def handle_ha_lux(self):
+        """Receive ambient lux from Home Assistant and apply mapped monitor brightness."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body)
+            lux = float(data.get('lux', 0.0))
+            settings = self._get_ha_brightness_settings()
+            if not settings['enabled']:
+                self._json_response({'ok': True, 'applied': False, 'reason': 'auto_disabled'})
+                return
+
+            lux_clamped = max(settings['lux_min'], min(settings['lux_max'], lux))
+            span = max(1.0, float(settings['lux_max'] - settings['lux_min']))
+            ratio = (lux_clamped - settings['lux_min']) / span
+            brightness = int(round(settings['min_brightness'] + ratio * (settings['max_brightness'] - settings['min_brightness'])))
+            brightness = max(0, min(100, brightness))
+
+            ok, result = self._set_monitor_brightness(brightness)
+            if not ok:
+                self._json_response({'ok': False, 'error': result}, 400)
+                return
+
+            self._json_response({
+                'ok': True,
+                'applied': True,
+                'lux': lux,
+                'lux_clamped': lux_clamped,
+                'brightness': result,
+                'settings': settings,
+            })
+        except Exception as e:
+            logger.error(f"Failed to apply HA lux: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 400)
 
     def handle_save_orientation(self):

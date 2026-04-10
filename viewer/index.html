@@ -680,6 +680,21 @@
                            oninput="setMonitorBrightness(this.value)">
                     <span class="brightness-value" id="monitor-brightness-value">--</span>
                 </div>
+                <div class="settings-section-title" id="ha-auto-title" style="margin-top:16px;">HA Auto Brightness</div>
+                <div class="brightness-control" style="margin-bottom:10px;">
+                    <button class="auto-btn" id="ha-auto-btn" onclick="toggleHAAutoBrightness()">Off</button>
+                    <span class="brightness-value" id="ha-auto-state">Manual</span>
+                </div>
+                <div class="settings-section-title" id="ha-min-title" style="font-size:16px;color:#999;">Min Brightness</div>
+                <div class="brightness-control">
+                    <input type="range" id="ha-min-slider" min="0" max="100" value="0" oninput="setHABrightnessBound('min', this.value)">
+                    <span class="brightness-value" id="ha-min-value">0%</span>
+                </div>
+                <div class="settings-section-title" id="ha-max-title" style="font-size:16px;color:#999;margin-top:10px;">Max Brightness</div>
+                <div class="brightness-control">
+                    <input type="range" id="ha-max-slider" min="0" max="100" value="100" oninput="setHABrightnessBound('max', this.value)">
+                    <span class="brightness-value" id="ha-max-value">100%</span>
+                </div>
             </div>
             <div class="settings-section">
                 <div class="settings-section-title" id="interval-title">Interval</div>
@@ -911,6 +926,9 @@
                 vertical: 'Vertical',
                 brightness: 'Brightness',
                 monitor_brightness: 'Monitor Brightness',
+                ha_auto_brightness: 'HA Auto Brightness',
+                min_brightness: 'Min Brightness',
+                max_brightness: 'Max Brightness',
                 auto: 'Auto',
                 sleep: 'Sleep Mode',
                 sleep_active: 'Active',
@@ -981,6 +999,9 @@
                 vertical: 'Vertikal',
                 brightness: 'Helligkeit',
                 monitor_brightness: 'Monitor-Helligkeit',
+                ha_auto_brightness: 'HA Auto-Helligkeit',
+                min_brightness: 'Min Helligkeit',
+                max_brightness: 'Max Helligkeit',
                 auto: 'Auto',
                 sleep: 'Schlafmodus',
                 sleep_active: 'Aktiv',
@@ -1062,7 +1083,11 @@
             document.getElementById('display-title').textContent = t('display');
             document.getElementById('brightness-title').textContent = t('brightness');
             document.getElementById('monitor-brightness-title').textContent = t('monitor_brightness');
+            document.getElementById('ha-auto-title').textContent = t('ha_auto_brightness');
+            document.getElementById('ha-min-title').textContent = t('min_brightness');
+            document.getElementById('ha-max-title').textContent = t('max_brightness');
             document.getElementById('auto-brightness-btn').textContent = t('auto');
+            updateHAAutoBrightnessUI();
             updateAutoBrightnessUI();
             document.getElementById('interval-title').textContent = t('interval');
             document.getElementById('fade-title').textContent = t('fade_duration');
@@ -1134,6 +1159,9 @@
             interval: 300000,         // default 5 min (ms)
             fade_duration: 1.0,       // seconds
             transition: 'fade',
+            ha_auto_enabled: false,
+            ha_auto_min: 0,
+            ha_auto_max: 100,
             hot_corner_size: 200,
         };
 
@@ -1405,6 +1433,90 @@
             }, 120);
         }
 
+        let haAutoSaveTimer = null;
+
+        function updateHAAutoBrightnessUI() {
+            const btn = document.getElementById('ha-auto-btn');
+            const state = document.getElementById('ha-auto-state');
+            const minSlider = document.getElementById('ha-min-slider');
+            const maxSlider = document.getElementById('ha-max-slider');
+            const minVal = document.getElementById('ha-min-value');
+            const maxVal = document.getElementById('ha-max-value');
+            const monitorSlider = document.getElementById('monitor-brightness-slider');
+
+            minSlider.value = config.ha_auto_min;
+            maxSlider.value = config.ha_auto_max;
+            minVal.textContent = config.ha_auto_min + '%';
+            maxVal.textContent = config.ha_auto_max + '%';
+
+            btn.classList.toggle('active', !!config.ha_auto_enabled);
+            btn.textContent = config.ha_auto_enabled ? t('on') : t('off');
+            state.textContent = config.ha_auto_enabled ? 'HA' : 'Manual';
+
+            monitorSlider.disabled = !!config.ha_auto_enabled;
+            monitorSlider.style.opacity = config.ha_auto_enabled ? '0.4' : '1';
+        }
+
+        function queueSaveHAAutoBrightness() {
+            if (haAutoSaveTimer) clearTimeout(haAutoSaveTimer);
+            haAutoSaveTimer = setTimeout(saveHAAutoBrightnessSettings, 180);
+        }
+
+        async function saveHAAutoBrightnessSettings() {
+            try {
+                await fetch('/api/ha_brightness_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        enabled: !!config.ha_auto_enabled,
+                        min_brightness: config.ha_auto_min,
+                        max_brightness: config.ha_auto_max,
+                    }),
+                });
+            } catch (e) {
+                console.error('Failed to save HA brightness settings:', e);
+            }
+        }
+
+        async function loadHAAutoBrightnessSettings() {
+            try {
+                const resp = await fetch('/api/ha_brightness_settings');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (!data.ok) return;
+                config.ha_auto_enabled = !!data.enabled;
+                config.ha_auto_min = Math.max(0, Math.min(100, parseInt(data.min_brightness ?? 0)));
+                config.ha_auto_max = Math.max(0, Math.min(100, parseInt(data.max_brightness ?? 100)));
+                if (config.ha_auto_min > config.ha_auto_max) {
+                    const t = config.ha_auto_min;
+                    config.ha_auto_min = config.ha_auto_max;
+                    config.ha_auto_max = t;
+                }
+                updateHAAutoBrightnessUI();
+            } catch (e) {
+                console.error('Failed to load HA brightness settings:', e);
+            }
+        }
+
+        function toggleHAAutoBrightness() {
+            config.ha_auto_enabled = !config.ha_auto_enabled;
+            updateHAAutoBrightnessUI();
+            queueSaveHAAutoBrightness();
+        }
+
+        function setHABrightnessBound(kind, val) {
+            let pct = parseInt(val);
+            if (!Number.isFinite(pct)) pct = 0;
+            pct = Math.max(0, Math.min(100, pct));
+            if (kind === 'min') {
+                config.ha_auto_min = Math.min(pct, config.ha_auto_max);
+            } else {
+                config.ha_auto_max = Math.max(pct, config.ha_auto_min);
+            }
+            updateHAAutoBrightnessUI();
+            queueSaveHAAutoBrightness();
+        }
+
         function toggleAutoBrightness() {
             autoBrightnessEnabled = !autoBrightnessEnabled;
             localStorage.setItem('frame-auto-brightness', autoBrightnessEnabled);
@@ -1606,6 +1718,7 @@
             document.getElementById('brightness-slider').value = currentBrightness;
             document.getElementById('brightness-value').textContent = currentBrightness + '%';
             loadMonitorBrightness();
+            loadHAAutoBrightnessSettings();
             updateAutoBrightnessUI();
             loadOrientation();
             loadInterval();
