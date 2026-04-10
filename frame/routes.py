@@ -354,7 +354,7 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             'min_brightness': min_b,
             'max_brightness': max_b,
             'lux_min': 0,
-            'lux_max': 2600,
+            'lux_max': 1000,
         }
 
     def _set_monitor_brightness(self, value):
