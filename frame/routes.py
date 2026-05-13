@@ -140,6 +140,8 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
             self.handle_wifi_scan()
         elif self.path == '/api/wifi/connect':
             self.handle_wifi_connect()
+        elif self.path == '/api/wifi/recovery':
+            self.handle_wifi_recovery_settings()
         elif self.path == '/api/tailscale/install':
             self.handle_tailscale_install()
         elif self.path == '/api/tailscale/up':
@@ -1108,6 +1110,37 @@ class PhotoFrameHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f"WiFi reconfigure error: {e}")
             self._json_response({'ok': False, 'error': str(e)}, 500)
+
+
+    def handle_wifi_recovery_settings(self):
+        """Enable/disable automatic WiFi recovery watchdog."""
+        if not self.app:
+            self._json_response({'ok': False, 'error': 'App state not available'}, 500)
+            return
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        try:
+            data = json.loads(body or b'{}')
+            enabled = data.get('enabled')
+            if isinstance(enabled, str):
+                enabled = enabled.strip().lower() in ('1', 'true', 'yes', 'on')
+            elif isinstance(enabled, (int, float)):
+                enabled = bool(enabled)
+            elif not isinstance(enabled, bool):
+                raise ValueError('enabled must be boolean')
+
+            self.app.config.setdefault('wifi', {})
+            self.app.config['wifi']['network_recovery_enabled'] = enabled
+            self.app.save_config()
+
+            if self.app.wifi_manager:
+                self.app.wifi_manager.set_recovery_enabled(enabled)
+
+            self._json_response({'ok': True, 'enabled': enabled})
+            logger.info(f"WiFi network recovery set to {enabled}")
+        except Exception as e:
+            logger.error(f"Error saving WiFi recovery settings: {e}")
+            self._json_response({'ok': False, 'error': str(e)}, 400)
 
     # --- Wizard / Tailscale endpoints ---
 

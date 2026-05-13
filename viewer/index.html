@@ -843,6 +843,15 @@
                         To change WiFi, start reconfiguration below. Then connect your phone to the setup hotspot and choose a new network.
                     </div>
                 </div>
+                <div class="settings-section">
+                    <div class="orientation-control">
+                        <label id="wifi-recovery-label">No Network</label>
+                        <button class="orient-btn" id="wifi-recovery-btn" onclick="toggleWifiRecovery()">On</button>
+                    </div>
+                    <div style="font-size:14px;color:#888;line-height:1.5;margin-top:8px;" id="wifi-recovery-hint">
+                        If WiFi is down for more than 10 minutes, the frame will try to recover WLAN automatically.
+                    </div>
+                </div>
                 <div class="settings-buttons">
                     <button class="settings-btn" id="wifi-reconfig-btn" onclick="startWifiReconfigure()">Reconfigure WiFi</button>
                     <button class="settings-btn close-btn" onclick="showSettingsPage('main')">← Back</button>
@@ -979,6 +988,8 @@
                 wifi_status: 'Status:',
                 wifi_hint: 'To change WiFi, start reconfiguration below. Then connect your phone to the setup hotspot and choose a new network.',
                 wifi_reconfigure: 'Reconfigure WiFi',
+                wifi_recovery: 'No Network',
+                wifi_recovery_hint: 'If WiFi is down for more than 10 minutes, the frame will try to recover WLAN automatically.',
                 wifi_connect_phone: 'Connect your phone to:',
                 wifi_then_open: 'Then open in your browser:',
                 weekdays: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
@@ -1052,6 +1063,8 @@
                 wifi_status: 'Status:',
                 wifi_hint: 'Um das WLAN zu \u00e4ndern, starte die Neukonfiguration. Verbinde dann dein Handy mit dem Setup-Hotspot und w\u00e4hle ein neues Netzwerk.',
                 wifi_reconfigure: 'WLAN neu einrichten',
+                wifi_recovery: 'Kein Netzwerk',
+                wifi_recovery_hint: 'Wenn WLAN l\u00e4nger als 10 Minuten ausf\u00e4llt, versucht der Rahmen automatisch eine WLAN-Wiederherstellung.',
                 wifi_connect_phone: 'Verbinde dein Handy mit:',
                 wifi_then_open: 'Dann \u00f6ffne im Browser:',
                 weekdays: ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'],
@@ -1129,9 +1142,12 @@
             document.getElementById('wifi-status-label').textContent = t('wifi_status');
             document.getElementById('wifi-network-label').textContent = t('wifi_network');
             document.getElementById('wifi-hint').textContent = t('wifi_hint');
+            document.getElementById('wifi-recovery-label').textContent = t('wifi_recovery');
+            document.getElementById('wifi-recovery-hint').textContent = t('wifi_recovery_hint');
             document.getElementById('wifi-reconfig-btn').textContent = t('wifi_reconfigure');
             document.getElementById('wifi-hotspot-instructions').textContent = t('wifi_connect_phone');
             document.getElementById('wifi-hotspot-open').textContent = t('wifi_then_open');
+            updateWifiRecoveryUI();
             var wifiBtns = document.querySelectorAll('#wifi-normal-view .settings-buttons .settings-btn');
             wifiBtns[1].textContent = t('back');
             var wifiHotspotBtns = document.querySelectorAll('#wifi-hotspot-view .settings-buttons .settings-btn');
@@ -1162,6 +1178,7 @@
             ha_auto_enabled: false,
             ha_auto_min: 0,
             ha_auto_max: 100,
+            wifi_recovery_enabled: true,
             hot_corner_size: 200,
         };
 
@@ -1583,6 +1600,10 @@
             try {
                 const resp = await fetch('/api/wifi/status');
                 const data = await resp.json();
+                if (typeof data.network_recovery_enabled === 'boolean') {
+                    config.wifi_recovery_enabled = data.network_recovery_enabled;
+                }
+                updateWifiRecoveryUI();
                 if (data.mode === 'hotspot') {
                     document.getElementById('wifi-status-value').textContent = t('wifi_hotspot');
                     document.getElementById('wifi-network-value').textContent = 'PhotoFrame-Setup';
@@ -1597,6 +1618,31 @@
             } catch (e) {
                 document.getElementById('wifi-status-value').textContent = '--';
             }
+        }
+
+
+        function updateWifiRecoveryUI() {
+            const btn = document.getElementById('wifi-recovery-btn');
+            if (!btn) return;
+            btn.classList.toggle('active', !!config.wifi_recovery_enabled);
+            btn.textContent = config.wifi_recovery_enabled ? t('on') : t('off');
+        }
+
+        async function toggleWifiRecovery() {
+            const next = !config.wifi_recovery_enabled;
+            try {
+                const resp = await fetch('/api/wifi/recovery', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: next }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) {
+                    return;
+                }
+                config.wifi_recovery_enabled = !!data.enabled;
+                updateWifiRecoveryUI();
+            } catch (e) {}
         }
 
         let wifiPollId = null;

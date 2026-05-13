@@ -64,12 +64,17 @@ def main():
     app.energy_save = EnergySaveManager(app_state=app)
 
     # Check WiFi connectivity and start hotspot if needed
-    app.wifi_manager = WiFiManager()
+    wifi_cfg = config.get('wifi', {})
+    app.wifi_manager = WiFiManager(
+        recovery_enabled=wifi_cfg.get('network_recovery_enabled', True),
+        recovery_timeout_sec=wifi_cfg.get('network_recovery_timeout_sec', 600),
+    )
+    app.wifi_manager.start_watchdog()
     if app.wifi_manager.check_connectivity():
-        logger.info("WiFi connected — normal mode")
+        logger.info("WiFi connected ? normal mode")
         app.init_syncer()
     else:
-        logger.warning("No WiFi connectivity — starting hotspot")
+        logger.warning("No WiFi connectivity ? starting hotspot")
         app.wifi_manager.start_hotspot()
 
     # Start energy-save loop AFTER syncer is ready (avoids race where
@@ -92,6 +97,9 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
+    finally:
+        if app.wifi_manager:
+            app.wifi_manager.stop_watchdog()
 
 
 if __name__ == '__main__':
